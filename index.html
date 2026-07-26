@@ -18,6 +18,7 @@
   
   <!-- Gráficos (Chart.js) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
 </head>
 <body class="theme-dark">
 
@@ -97,6 +98,12 @@
 
       <!-- VIEW: DASHBOARD -->
       <div id="view-dashboard" class="view active">
+        <div class="toolbar" style="margin-bottom: 20px;">
+          <div class="filters" style="display: flex; gap: 10px;">
+            <input type="date" id="dash-data-inicio" onchange="app.renderDashboard()">
+            <input type="date" id="dash-data-fim" onchange="app.renderDashboard()">
+          </div>
+        </div>
         <div class="kpi-grid">
           <div class="kpi-card highlight">
             <div class="kpi-icon"><i data-lucide="dollar-sign"></i></div>
@@ -183,6 +190,16 @@
           <div class="actions">
             <button class="btn btn-secondary" onclick="app.abrirModal('modal-transferencia')">Transferência</button>
             <button class="btn btn-primary" onclick="app.abrirModal('modal-lancamento')">Novo Lançamento</button>
+          </div>
+        </div>
+        <div class="charts-row" style="margin-bottom: 20px;">
+          <div class="chart-container">
+            <h3>Fluxo de Caixa</h3>
+            <canvas id="chart-contas-saldo"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Entradas, Saídas e Saldo</h3>
+            <canvas id="chart-fluxo-resumo"></canvas>
           </div>
         </div>
         <div class="table-container">

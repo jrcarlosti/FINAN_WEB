@@ -10,9 +10,12 @@ const app = {
   },
   chartCategorias: null,
   chartEvolucao: null,
+  chartContas: null,
+  chartFluxoResumo: null,
   ordemDataAsc: true,
 
   init() {
+    Chart.register(ChartDataLabels);
     lucide.createIcons();
     this.bindEvents();
     
@@ -228,13 +231,13 @@ const app = {
       this.data.cartoes = resCar.dados;
       this.data.reservas = resRes.dados;
       
+      this.preencherSelects();
       this.renderDashboard();
       this.renderContas();
       this.renderFluxo();
       this.renderCategorias();
       this.renderReservas();
       this.renderCartoes();
-      this.preencherSelects();
       
       this.esconderSplash();
     }).catch(err => {
@@ -252,16 +255,40 @@ const app = {
     const d = this.data.dashboard;
     if(!d) return;
 
+    const dashDataIni = document.getElementById('dash-data-inicio')?.value || '';
+    const dashDataFim = document.getElementById('dash-data-fim')?.value || '';
+
+    let movs = [...this.data.movimentacoes];
+    if(dashDataIni) movs = movs.filter(m => String(m.Data).substring(0, 10) >= dashDataIni);
+    if(dashDataFim) movs = movs.filter(m => String(m.Data).substring(0, 10) <= dashDataFim);
+
+    let totalReceitasMes = 0;
+    let totalDespesasMes = 0;
+    let pendentesCount = 0;
+    const pendentes = [];
+    const despesasPorCategoria = {};
+
+    movs.forEach(m => {
+      if(m.Tipo === 'ENTRADA') totalReceitasMes += Number(m.Valor);
+      else if(m.Tipo === 'SAIDA') {
+         totalDespesasMes += Number(m.Valor);
+         if (!despesasPorCategoria[m.Categoria]) despesasPorCategoria[m.Categoria] = 0;
+         despesasPorCategoria[m.Categoria] += Number(m.Valor);
+      }
+      if (String(m.Status).toUpperCase() === 'PENDENTE') {
+        pendentesCount++;
+        pendentes.push(m);
+      }
+    });
+
     document.getElementById('kpi-saldo-geral').innerText = this.formatarMoeda(d.saldoGeralContas);
-    document.getElementById('kpi-receitas').innerText = this.formatarMoeda(d.totalReceitasMes);
-    document.getElementById('kpi-despesas').innerText = this.formatarMoeda(d.totalDespesasMes);
-    document.getElementById('kpi-pendentes').innerText = d.pendentesCount;
+    document.getElementById('kpi-receitas').innerText = this.formatarMoeda(totalReceitasMes);
+    document.getElementById('kpi-despesas').innerText = this.formatarMoeda(totalDespesasMes);
+    document.getElementById('kpi-pendentes').innerText = pendentesCount;
 
     const ttPendentes = document.getElementById('tooltip-pendentes');
     if (ttPendentes) {
-      if (d.pendentesCount > 0) {
-        const mesAtualStr = new Date().toISOString().substring(0, 7);
-        const pendentes = this.data.movimentacoes.filter(m => String(m.Status).toUpperCase() === 'PENDENTE' && m.Data && String(m.Data).startsWith(mesAtualStr));
+      if (pendentesCount > 0) {
         ttPendentes.innerHTML = pendentes.map(p => `
           <div class="tooltip-item">
             <span>${p.Descricao}</span>
@@ -269,7 +296,7 @@ const app = {
           </div>
         `).join('');
       } else {
-        ttPendentes.innerHTML = '<div class="tooltip-item">Nenhuma pendência no mês</div>';
+        ttPendentes.innerHTML = '<div class="tooltip-item">Nenhuma pendência no período</div>';
       }
     }
 
@@ -278,8 +305,8 @@ const app = {
     if(ctx) {
       if(this.chartCategorias) this.chartCategorias.destroy();
       
-      const labels = Object.keys(d.despesasPorCategoria);
-      const values = Object.values(d.despesasPorCategoria);
+      const labels = Object.keys(despesasPorCategoria);
+      const values = Object.values(despesasPorCategoria);
       
       if(labels.length === 0) {
         labels.push('Sem despesas');
@@ -298,7 +325,15 @@ const app = {
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'right', labels: { color: 'var(--text-primary)' } } }
+          plugins: { 
+            legend: { position: 'right', labels: { color: 'var(--text-primary)' } },
+            datalabels: {
+              formatter: function(value) { return app.formatarMoeda(value); },
+              color: '#fff',
+              font: { weight: 'bold' },
+              display: function(context) { return context.dataset.data[context.dataIndex] > 0; }
+            }
+          }
         }
       });
     }
@@ -309,28 +344,23 @@ const app = {
       if (this.chartEvolucao) this.chartEvolucao.destroy();
 
       const mesesMap = {};
-      const hoje = new Date();
-      for (let i = 5; i >= 0; i--) {
-        const dt = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
-        const mStr = dt.toISOString().substring(0, 7); // YYYY-MM
-        mesesMap[mStr] = { Receitas: 0, Despesas: 0 };
-      }
-
-      this.data.movimentacoes.forEach(m => {
+      movs.forEach(m => {
         if (!m.Data) return;
         const mStr = String(m.Data).substring(0, 7);
-        if (mesesMap[mStr] && String(m.Status).toUpperCase() === 'PAGO') {
-          if (m.Tipo === 'ENTRADA') mesesMap[mStr].Receitas += Number(m.Valor);
-          else if (m.Tipo === 'SAIDA') mesesMap[mStr].Despesas += Number(m.Valor);
-        }
+        if (!mesesMap[mStr]) mesesMap[mStr] = { Receitas: 0, Despesas: 0 };
+        
+        if (m.Tipo === 'ENTRADA') mesesMap[mStr].Receitas += Number(m.Valor);
+        else if (m.Tipo === 'SAIDA') mesesMap[mStr].Despesas += Number(m.Valor);
       });
+      
+      const sortedKeys = Object.keys(mesesMap).sort();
 
-      const labelsEvo = Object.keys(mesesMap).map(k => {
+      const labelsEvo = sortedKeys.map(k => {
         const p = k.split('-');
         return `${p[1]}/${p[0].substring(2)}`;
       });
-      const dataRec = Object.values(mesesMap).map(v => v.Receitas);
-      const dataDes = Object.values(mesesMap).map(v => v.Despesas);
+      const dataRec = sortedKeys.map(k => mesesMap[k].Receitas);
+      const dataDes = sortedKeys.map(k => mesesMap[k].Despesas);
 
       this.chartEvolucao = new Chart(ctxEvolucao, {
         type: 'bar',
@@ -343,7 +373,17 @@ const app = {
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: 'var(--text-primary)' } } },
+          layout: { padding: { top: 30 } },
+          plugins: { 
+            legend: { labels: { color: 'var(--text-primary)' } },
+            datalabels: {
+              anchor: 'end',
+              align: 'top',
+              formatter: function(value) { return app.formatarMoeda(value); },
+              color: 'var(--text-primary)',
+              font: { size: 10 }
+            }
+          },
           scales: {
             x: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' } },
             y: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' } }
@@ -403,8 +443,8 @@ const app = {
     if(fCat !== 'todas') movs = movs.filter(m => m.Categoria === fCat);
     if(fCartao !== 'todos') movs = movs.filter(m => String(m.ID_Cartao) === fCartao);
     if(fDesc) movs = movs.filter(m => String(m.Descricao).toLowerCase().includes(fDesc));
-    if(fDataIni) movs = movs.filter(m => m.Data >= fDataIni);
-    if(fDataFim) movs = movs.filter(m => m.Data <= fDataFim);
+    if(fDataIni) movs = movs.filter(m => String(m.Data).substring(0, 10) >= fDataIni);
+    if(fDataFim) movs = movs.filter(m => String(m.Data).substring(0, 10) <= fDataFim);
 
     // Sort by Date
     movs.sort((a, b) => {
@@ -444,6 +484,98 @@ const app = {
       `;
     });
     lucide.createIcons();
+    
+    // Graficos do Fluxo
+    this.renderGraficosFluxo(movs);
+  },
+
+  renderGraficosFluxo(movs) {
+    // 1. Gráfico Contas Bancárias (Saldo)
+    const ctxContas = document.getElementById('chart-contas-saldo');
+    if (ctxContas) {
+      if (this.chartContas) this.chartContas.destroy();
+      
+      const contasSorted = [...this.data.contas].sort((a, b) => Number(b.Saldo_Atual) - Number(a.Saldo_Atual));
+      const labels = contasSorted.map(c => c.Nome);
+      const data = contasSorted.map(c => Number(c.Saldo_Atual));
+      const bgColors = contasSorted.map(c => c.Cor || (c.Saldo_Atual < 0 ? '#ef4444' : '#3b82f6'));
+      
+      this.chartContas = new Chart(ctxContas, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Saldo da Conta',
+            data: data,
+            backgroundColor: bgColors,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          layout: { padding: { top: 30 } },
+          plugins: { 
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end',
+              align: 'top',
+              formatter: function(value) { return app.formatarMoeda(value); },
+              color: 'var(--text-primary)',
+              font: { size: 11, weight: '500' }
+            }
+          },
+          scales: {
+            x: { ticks: { color: 'var(--text-secondary)' } },
+            y: { ticks: { color: 'var(--text-secondary)' } }
+          }
+        }
+      });
+    }
+
+    // 2. Gráfico Entradas, Saídas e Saldo
+    const ctxResumo = document.getElementById('chart-fluxo-resumo');
+    if (ctxResumo) {
+      if (this.chartFluxoResumo) this.chartFluxoResumo.destroy();
+      
+      let totalEntradas = 0;
+      let totalSaidas = 0;
+      
+      movs.forEach(m => {
+        if (m.Tipo === 'ENTRADA') totalEntradas += Number(m.Valor);
+        else if (m.Tipo === 'SAIDA') totalSaidas += Number(m.Valor);
+      });
+      
+      const saldo = totalEntradas - totalSaidas;
+      
+      this.chartFluxoResumo = new Chart(ctxResumo, {
+        type: 'bar',
+        data: {
+          labels: ['Entradas', 'Saídas', 'Saldo'],
+          datasets: [{
+            label: 'Valores',
+            data: [totalEntradas, totalSaidas, saldo],
+            backgroundColor: ['#10b981', '#ef4444', saldo >= 0 ? '#3b82f6' : '#ef4444'],
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          layout: { padding: { top: 30 } },
+          plugins: { 
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end',
+              align: 'top',
+              formatter: function(value) { return app.formatarMoeda(value); },
+              color: 'var(--text-primary)',
+              font: { size: 11, weight: '500' }
+            }
+          },
+          scales: {
+            x: { ticks: { color: 'var(--text-secondary)' } },
+            y: { ticks: { color: 'var(--text-secondary)' } }
+          }
+        }
+      });
+    }
   },
 
   renderCategorias() {
@@ -569,12 +701,22 @@ const app = {
     if (fCat) fCat.innerHTML = '<option value="todas">Todas Categorias</option>' + sCat.innerHTML;
 
     // Datas padrao do filtro (Primeiro e ultimo dia do mes)
+    const d = new Date();
+    const dia1 = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().substring(0,10);
+    const diaU = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().substring(0,10);
+
     const fDataIni = document.getElementById('filtro-data-inicio');
     const fDataFim = document.getElementById('filtro-data-fim');
     if (fDataIni && !fDataIni.value) {
-      const d = new Date();
-      fDataIni.value = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().substring(0,10);
-      fDataFim.value = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().substring(0,10);
+      fDataIni.value = dia1;
+      fDataFim.value = diaU;
+    }
+    
+    const dashDataIni = document.getElementById('dash-data-inicio');
+    const dashDataFim = document.getElementById('dash-data-fim');
+    if (dashDataIni && !dashDataIni.value) {
+      dashDataIni.value = dia1;
+      dashDataFim.value = diaU;
     }
   },
 
