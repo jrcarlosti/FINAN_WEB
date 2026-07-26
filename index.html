@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FIN - Gestão Financeira</title>
+  
+  <!-- Estilos -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Fontes (Inter) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Ícones (Lucide) -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Gráficos (Chart.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="theme-dark">
+
+  <!-- Splash Screen (Carregamento Inicial) -->
+  <div id="splash-screen" class="splash active">
+    <div class="loader"></div>
+    <h2>Carregando FIN...</h2>
+  </div>
+
+  <!-- App Layout -->
+  <div class="app-layout" id="app-layout" style="display:none;">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <i data-lucide="wallet"></i>
+          <span>FIN.</span>
+        </div>
+        <button id="btn-toggle-theme" class="icon-btn" title="Alternar Tema">
+          <i data-lucide="sun"></i>
+        </button>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-route="dashboard">
+          <i data-lucide="layout-dashboard"></i> Dashboard
+        </a>
+        <a href="#" class="nav-item" data-route="contas">
+          <i data-lucide="landmark"></i> Contas Bancárias
+        </a>
+        <a href="#" class="nav-item" data-route="fluxo">
+          <i data-lucide="arrow-right-left"></i> Fluxo de Caixa
+        </a>
+        <a href="#" class="nav-item" data-route="cartoes">
+          <i data-lucide="credit-card"></i> Cartões & Faturas
+        </a>
+        <a href="#" class="nav-item" data-route="reservas">
+          <i data-lucide="piggy-bank"></i> Caixas Reservas
+        </a>
+        <hr class="nav-divider">
+        <a href="#" class="nav-item" data-route="categorias">
+          <i data-lucide="tags"></i> Categorias
+        </a>
+        <a href="#" class="nav-item" data-route="configuracoes">
+          <i data-lucide="settings"></i> Configurações
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div class="avatar"><i data-lucide="user"></i></div>
+          <div class="user-details">
+            <strong id="user-name-display">Usuário</strong>
+            <span>Administrador</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="mobile-menu-btn">
+          <i data-lucide="menu"></i>
+        </div>
+        <h2 id="page-title">Dashboard</h2>
+        <div class="topbar-actions">
+          <span id="sync-status" style="display:none; align-items:center; gap:5px; color:var(--text-secondary); font-size:0.85rem; margin-right: 10px;">
+            <i data-lucide="refresh-cw" class="spin" style="width:16px; height:16px;"></i> Sincronizando...
+          </span>
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-lancamento')">
+            <i data-lucide="plus"></i> Novo Lançamento
+          </button>
+        </div>
+      </header>
+
+      <!-- VIEW: DASHBOARD -->
+      <div id="view-dashboard" class="view active">
+        <div class="kpi-grid">
+          <div class="kpi-card highlight">
+            <div class="kpi-icon"><i data-lucide="dollar-sign"></i></div>
+            <div class="kpi-info">
+              <span>Saldo Geral (Contas)</span>
+              <strong id="kpi-saldo-geral">R$ 0,00</strong>
+            </div>
+          </div>
+          <div class="kpi-card success">
+            <div class="kpi-icon"><i data-lucide="trending-up"></i></div>
+            <div class="kpi-info">
+              <span>Receitas do Mês</span>
+              <strong id="kpi-receitas">R$ 0,00</strong>
+            </div>
+          </div>
+          <div class="kpi-card danger">
+            <div class="kpi-icon"><i data-lucide="trending-down"></i></div>
+            <div class="kpi-info">
+              <span>Despesas do Mês</span>
+              <strong id="kpi-despesas">R$ 0,00</strong>
+            </div>
+          </div>
+          <div class="kpi-card warning" style="cursor: pointer; position: relative;" onclick="app.irParaPendentes()" title="Clique para ver os pendentes">
+            <div class="kpi-icon"><i data-lucide="alert-circle"></i></div>
+            <div class="kpi-info">
+              <span>Pendentes no Mês</span>
+              <strong id="kpi-pendentes">0</strong>
+            </div>
+            <div class="tooltip-pendentes" id="tooltip-pendentes">
+              <!-- Pendencias via JS -->
+            </div>
+          </div>
+        </div>
+
+        <div class="charts-row">
+          <div class="chart-container">
+            <h3>Evolução Mensal</h3>
+            <canvas id="chart-evolucao"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Despesas por Categoria</h3>
+            <canvas id="chart-categorias"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW: CONTAS -->
+      <div id="view-contas" class="view">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-conta')"><i data-lucide="plus"></i> Nova Conta</button>
+        </div>
+        <div class="grid-cards" id="lista-contas">
+          <!-- Contas renderizadas via JS -->
+        </div>
+      </div>
+
+      <!-- VIEW: FLUXO DE CAIXA -->
+      <div id="view-fluxo" class="view">
+        <div class="toolbar">
+          <div class="filters" style="flex-wrap: wrap;">
+            <input type="date" id="filtro-data-inicio" onchange="app.renderFluxo()">
+            <input type="date" id="filtro-data-fim" onchange="app.renderFluxo()">
+            <select id="filtro-tipo" onchange="app.renderFluxo()">
+              <option value="todos">Todos os Tipos</option>
+              <option value="ENTRADA">Entradas</option>
+              <option value="SAIDA">Saídas</option>
+            </select>
+            <select id="filtro-conta" onchange="app.renderFluxo()">
+              <option value="todas">Todas as Contas</option>
+            </select>
+            <select id="filtro-status" onchange="app.renderFluxo()">
+              <option value="todos">Todos os Status</option>
+              <option value="PAGO">Concluído</option>
+              <option value="PENDENTE">Pendente</option>
+            </select>
+            <select id="filtro-categoria" onchange="app.renderFluxo()">
+              <option value="todas">Todas Categorias</option>
+            </select>
+            <select id="filtro-cartao" onchange="app.renderFluxo()">
+              <option value="todos">Todos os Cartões</option>
+            </select>
+            <input type="text" id="filtro-descricao" placeholder="Buscar por descrição..." onkeyup="app.renderFluxo()">
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary" onclick="app.abrirModal('modal-transferencia')">Transferência</button>
+            <button class="btn btn-primary" onclick="app.abrirModal('modal-lancamento')">Novo Lançamento</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="cursor: pointer; user-select: none;" onclick="app.toggleOrdemData()">Data <span id="icone-ordem-data">↑</span></th>
+                <th>Descrição</th>
+                <th>Categoria</th>
+                <th>Cartão</th>
+                <th>Parcela</th>
+                <th>Conta / Reserva</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-fluxo">
+              <!-- Lançamentos renderizados via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VIEW: CONFIGURAÇÕES -->
+      <div id="view-configuracoes" class="view">
+        <div class="settings-card">
+          <h3>Conexão com Banco de Dados</h3>
+          <p>Insira a URL gerada pelo Google Apps Script para conectar o sistema à sua planilha.</p>
+          <div class="form-group">
+            <label>URL do Web App (API):</label>
+            <input type="text" id="input-api-url" class="form-control" placeholder="https://script.google.com/macros/s/...">
+          </div>
+          <div class="form-actions" style="margin-top: 15px;">
+            <button class="btn btn-primary" onclick="app.salvarConfig()">Salvar URL</button>
+            <button class="btn btn-secondary" onclick="app.inicializarPlanilha()">⚡ Inicializar Abas na Planilha</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Outras views (Construção) -->
+      <div id="view-cartoes" class="view">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-cartao')"><i data-lucide="plus"></i> Novo Cartão</button>
+        </div>
+        <div class="grid-cards" id="lista-cartoes"></div>
+      </div>
+      
+      <div id="view-reservas" class="view">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-reserva')"><i data-lucide="plus"></i> Nova Reserva</button>
+        </div>
+        <div class="grid-cards" id="lista-reservas"></div>
+      </div>
+      
+      <div id="view-categorias" class="view">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-categoria')"><i data-lucide="plus"></i> Nova Categoria</button>
+        </div>
+        <div class="grid-cards" id="lista-categorias"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- MODALS -->
+  
+  <div class="modal-overlay" id="modal-conta-editar">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Editar Conta</h2>
+        <button class="icon-btn" onclick="app.fecharModal('modal-conta-editar')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-conta-editar" onsubmit="event.preventDefault(); app.salvarEdicaoConta();">
+        <input type="hidden" id="edit-conta-id">
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label>Nome da Conta</label>
+            <input type="text" id="edit-conta-nome" class="form-control" required>
+          </div>
+          <div class="form-group span-2">
+            <label>Saldo Inicial (R$)</label>
+            <input type="number" step="0.01" id="edit-conta-saldo-inicial" class="form-control" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="app.fecharModal('modal-conta-editar')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Lançamento -->
+  <div id="modal-lancamento" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Novo Lançamento</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-lancamento')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-lancamento" onsubmit="event.preventDefault(); app.salvarLancamento();">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="lanc-tipo" class="form-control" required>
+              <option value="SAIDA">Saída (Despesa)</option>
+              <option value="ENTRADA">Entrada (Receita)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="lanc-data" class="form-control" required>
+          </div>
+          <div class="form-group span-2">
+            <label>Descrição</label>
+            <input type="text" id="lanc-descricao" class="form-control" required placeholder="Ex: Supermercado">
+          </div>
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="lanc-valor" class="form-control" required>
+          </div>
+          <div class="form-group span-2">
+            <label>Cartão de Crédito (Opcional)</label>
+            <select id="lanc-cartao" class="form-control">
+              <option value="">Nenhum</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Parcelas</label>
+            <input type="number" id="lanc-parcelas" class="form-control" value="1" min="1" required>
+          </div>
+          <div class="form-group">
+            <label>Conta / Reserva</label>
+            <select id="lanc-conta" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="lanc-categoria" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="lanc-status" class="form-control">
+              <option value="PAGO">Pago / Recebido</option>
+              <option value="PENDENTE">Pendente</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-lancamento')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Lançamento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Edição Lançamento -->
+  <div id="modal-lancamento-editar" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Editar Lançamento</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-lancamento-editar')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-lancamento-editar" onsubmit="event.preventDefault(); app.salvarEdicaoLancamento();">
+        <input type="hidden" id="edit-id">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="edit-tipo" class="form-control" required>
+              <option value="SAIDA">Saída (Despesa)</option>
+              <option value="ENTRADA">Entrada (Receita)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="edit-data" class="form-control" required>
+          </div>
+          <div class="form-group span-2">
+            <label>Descrição</label>
+            <input type="text" id="edit-descricao" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="edit-valor" class="form-control" required>
+          </div>
+          <div class="form-group span-2">
+            <label>Cartão de Crédito (Opcional)</label>
+            <select id="edit-cartao" class="form-control">
+              <option value="">Nenhum</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Parcelas</label>
+            <input type="text" id="edit-parcelas" class="form-control" disabled title="Não é possível alterar parcelas de lançamentos já criados.">
+          </div>
+          <div class="form-group">
+            <label>Conta / Reserva</label>
+            <select id="edit-conta" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="edit-categoria" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="edit-status" class="form-control">
+              <option value="PAGO">Concluído</option>
+              <option value="PENDENTE">Pendente</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-lancamento-editar')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  
+  <!-- Modal Conta -->
+  <div id="modal-conta" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nova Conta</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-conta')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-conta" onsubmit="event.preventDefault(); app.salvarConta();">
+        <div class="form-group">
+          <label>Nome da Conta</label>
+          <input type="text" id="conta-nome" class="form-control" required placeholder="Ex: Nubank Principal">
+        </div>
+        <div class="form-group">
+          <label>Saldo Inicial (R$)</label>
+          <input type="number" step="0.01" id="conta-saldo-inicial" class="form-control" value="0.00">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-conta')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Conta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <!-- Modal Transferência -->
+  <div id="modal-transferencia" class="modal-overlay">
+    <div class="modal" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3>Nova Transferência</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-transferencia')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-transferencia" onsubmit="event.preventDefault(); app.salvarTransferencia();">
+        
+        <!-- Shared fields -->
+        <div class="form-grid">
+          <div class="form-group span-2">
+            <label>Descrição</label>
+            <input type="text" id="transf-descricao" class="form-control" required placeholder="Ex: Transferência para Poupança">
+          </div>
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="transf-valor" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="transf-categoria" class="form-control" required></select>
+          </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 10px 0;">
+
+        <!-- Origin and Destination Columns -->
+        <div class="form-grid">
+          <!-- Origem (Saída) -->
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <h4 style="color: var(--danger); font-size: 0.95rem;">Origem (Saída)</h4>
+            
+            <div class="form-group">
+              <label>Tipo</label>
+              <input type="text" value="SAIDA" class="form-control" disabled>
+            </div>
+            <div class="form-group">
+              <label>Conta Origem</label>
+              <select id="transf-conta-origem" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+              <label>Data da Saída</label>
+              <input type="date" id="transf-data-origem" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label>Status (Saída)</label>
+              <select id="transf-status-origem" class="form-control" required>
+                <option value="PAGO">Concluído</option>
+                <option value="PENDENTE">Pendente</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Destino (Entrada) -->
+          <div style="display: flex; flex-direction: column; gap: 15px;">
+            <h4 style="color: var(--success); font-size: 0.95rem;">Destino (Entrada)</h4>
+            
+            <div class="form-group">
+              <label>Tipo</label>
+              <input type="text" value="ENTRADA" class="form-control" disabled>
+            </div>
+            <div class="form-group">
+              <label>Conta Destino</label>
+              <select id="transf-conta-destino" class="form-control" required></select>
+            </div>
+            <div class="form-group">
+              <label>Data da Entrada</label>
+              <input type="date" id="transf-data-destino" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label>Status (Entrada)</label>
+              <select id="transf-status-destino" class="form-control" required>
+                <option value="PAGO">Concluído</option>
+                <option value="PENDENTE">Pendente</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-transferencia')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Realizar Transferência</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Categoria -->
+  <div id="modal-categoria" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="titulo-modal-categoria">Nova Categoria</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-categoria')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-categoria" onsubmit="event.preventDefault(); app.salvarCategoria();">
+        <input type="hidden" id="cat-id">
+        <div class="form-group">
+          <label>Nome da Categoria</label>
+          <input type="text" id="cat-nome" class="form-control" required placeholder="Ex: Alimentação">
+        </div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="cat-tipo" class="form-control" required>
+            <option value="DESPESA">Despesa</option>
+            <option value="RECEITA">Receita</option>
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Cor Hexadecimal</label>
+            <input type="color" id="cat-cor" class="form-control" value="#6366f1" required style="padding:0; height:42px;">
+          </div>
+          <div class="form-group">
+            <label>Ícone (Lucide)</label>
+            <input type="text" id="cat-icone" class="form-control" required value="tag" placeholder="Ex: tag, home, car">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-categoria')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Categoria</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Reserva -->
+  <div id="modal-reserva" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nova Reserva (Meta)</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-reserva')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-reserva" onsubmit="event.preventDefault(); app.salvarReserva();">
+        <div class="form-group">
+          <label>Nome da Reserva</label>
+          <input type="text" id="reserva-nome" class="form-control" required placeholder="Ex: Viagem Férias">
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Meta (R$)</label>
+            <input type="number" step="0.01" id="reserva-meta" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Saldo Inicial (R$)</label>
+            <input type="number" step="0.01" id="reserva-saldo" class="form-control" value="0.00">
+          </div>
+          <div class="form-group">
+            <label>Cor</label>
+            <input type="color" id="reserva-cor" class="form-control" value="#10b981" style="padding:0; height:42px;">
+          </div>
+          <div class="form-group">
+            <label>Ícone</label>
+            <input type="text" id="reserva-icone" class="form-control" value="piggy-bank">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-reserva')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Criar Reserva</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Aporte/Resgate -->
+  <div id="modal-aporte" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="titulo-modal-aporte">Aporte / Resgate</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-aporte')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-aporte" onsubmit="event.preventDefault(); app.salvarAporte();">
+        <input type="hidden" id="aporte-reserva-id">
+        <div class="form-group">
+          <label>Operação</label>
+          <select id="aporte-tipo" class="form-control" required>
+            <option value="SAIDA">Fazer Aporte (+ na reserva, debitar da conta)</option>
+            <option value="ENTRADA">Fazer Resgate (- na reserva, creditar na conta)</option>
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" step="0.01" id="aporte-valor" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="aporte-data" class="form-control" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Conta Movimentada</label>
+          <select id="aporte-conta" class="form-control" required></select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-aporte')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Cartão -->
+  <div id="modal-cartao" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Novo Cartão</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-cartao')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-cartao" onsubmit="event.preventDefault(); app.salvarCartao();">
+        <div class="form-group">
+          <label>Nome do Cartão</label>
+          <input type="text" id="cartao-nome" class="form-control" required placeholder="Ex: Nubank Ultravioleta">
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Limite (R$)</label>
+            <input type="number" step="0.01" id="cartao-limite" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Cor Hexadecimal</label>
+            <input type="color" id="cartao-cor" class="form-control" value="#8b5cf6" required style="padding:0; height:42px;">
+          </div>
+          <div class="form-group">
+            <label>Dia de Fechamento</label>
+            <input type="number" id="cartao-fechamento" class="form-control" min="1" max="31" required>
+          </div>
+          <div class="form-group">
+            <label>Dia de Vencimento</label>
+            <input type="number" id="cartao-vencimento" class="form-control" min="1" max="31" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Conta para Pagamento Fatura</label>
+          <select id="cartao-conta" class="form-control" required></select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-cartao')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Cartão</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Editar Cartão -->
+  <div id="modal-cartao-editar" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Editar Cartão</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-cartao-editar')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-cartao-editar" onsubmit="event.preventDefault(); app.salvarEdicaoCartao();">
+        <input type="hidden" id="edit-cartao-id">
+        <div class="form-group">
+          <label>Nome do Cartão</label>
+          <input type="text" id="edit-cartao-nome" class="form-control" required>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Limite (R$)</label>
+            <input type="number" step="0.01" id="edit-cartao-limite" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Cor Hexadecimal</label>
+            <input type="color" id="edit-cartao-cor" class="form-control" required style="padding:0; height:42px;">
+          </div>
+          <div class="form-group">
+            <label>Dia de Fechamento</label>
+            <input type="number" id="edit-cartao-fechamento" class="form-control" min="1" max="31" required>
+          </div>
+          <div class="form-group">
+            <label>Dia de Vencimento</label>
+            <input type="number" id="edit-cartao-vencimento" class="form-control" min="1" max="31" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Conta para Pagamento Fatura</label>
+          <select id="edit-cartao-conta" class="form-control" required></select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-cartao-editar')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
