@@ -13,22 +13,79 @@ const app = {
   chartContas: null,
   chartFluxoResumo: null,
   ordemDataAsc: true,
+  ocultarValoresGraficos: false,
 
   init() {
     Chart.register(ChartDataLabels);
     lucide.createIcons();
     this.bindEvents();
     
-    // Check config
+    // Auth Check
+    if (sessionStorage.getItem('fin_logged_in') === 'true') {
+      if (!SCRIPT_URL) {
+        this.navegar('configuracoes');
+        this.esconderSplash();
+        this.mostrarToast('Por favor, configure a URL da API para começar.', 'warning');
+        return;
+      }
+      this.carregarDadosIniciais();
+    } else {
+      this.exibirLogin();
+    }
+  },
+
+  exibirLogin() {
+    document.getElementById('splash-screen').style.display = 'none';
+    document.getElementById('app-layout').style.display = 'none';
+    const ls = document.getElementById('login-screen');
+    ls.style.display = 'flex';
+    
     if (!SCRIPT_URL) {
-      this.navegar('configuracoes');
-      this.esconderSplash();
-      this.mostrarToast('Por favor, configure a URL da API para começar.', 'warning');
+      document.getElementById('login-api-group').style.display = 'block';
+    }
+  },
+
+  fazerLogin() {
+    const btn = document.getElementById('btn-login');
+    btn.disabled = true;
+    btn.innerText = 'Validando...';
+    
+    const apiUrlInput = document.getElementById('login-api-url').value.trim();
+    if (!SCRIPT_URL && apiUrlInput) {
+      if (!apiUrlInput.startsWith('https://script.google.com')) {
+        this.mostrarToast('URL da API inválida.', 'error');
+        btn.disabled = false; btn.innerText = 'Entrar';
+        return;
+      }
+      SCRIPT_URL = apiUrlInput;
+      localStorage.setItem(API_URL_KEY, SCRIPT_URL);
+    } else if (!SCRIPT_URL) {
+      this.mostrarToast('Informe a URL da API.', 'warning');
+      btn.disabled = false; btn.innerText = 'Entrar';
       return;
     }
-    
-    // Load initial data
-    this.carregarDadosIniciais();
+
+    const user = document.getElementById('login-user').value.trim();
+    const pass = document.getElementById('login-pass').value.trim();
+
+    this.request('listar_usuarios').then(res => {
+      const usuarios = res.dados || [];
+      const match = usuarios.find(u => u.Login === user && String(u.Senha) === pass);
+      
+      if (match) {
+        sessionStorage.setItem('fin_logged_in', 'true');
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('splash-screen').style.display = 'flex';
+        document.getElementById('user-name-display').innerText = match.Nome || match.Login;
+        this.carregarDadosIniciais();
+      } else {
+        this.mostrarToast('Usuário ou senha incorretos.', 'error');
+        btn.disabled = false; btn.innerText = 'Entrar';
+      }
+    }).catch(err => {
+      this.mostrarToast('Erro ao contatar API: ' + err, 'error');
+      btn.disabled = false; btn.innerText = 'Entrar';
+    });
   },
 
   bindEvents() {
@@ -52,6 +109,20 @@ const app = {
     document.getElementById('btn-toggle-theme').addEventListener('click', () => {
       document.body.classList.toggle('theme-light');
       document.body.classList.toggle('theme-dark');
+    });
+
+    // Ocultar valores toggle (CSS blur instantâneo)
+    document.getElementById('btn-toggle-valores').addEventListener('click', (e) => {
+      this.ocultarValoresGraficos = !this.ocultarValoresGraficos;
+      document.body.classList.toggle('valores-ocultos', this.ocultarValoresGraficos);
+      const ic = e.currentTarget.querySelector('i');
+      ic.setAttribute('data-lucide', this.ocultarValoresGraficos ? 'eye-off' : 'eye');
+      lucide.createIcons();
+      // Atualizar datalabels dos gráficos
+      if (this.chartCategorias) this.chartCategorias.update();
+      if (this.chartEvolucao) this.chartEvolucao.update();
+      if (this.chartContas) this.chartContas.update();
+      if (this.chartFluxoResumo) this.chartFluxoResumo.update();
     });
   },
 
@@ -281,9 +352,9 @@ const app = {
       }
     });
 
-    document.getElementById('kpi-saldo-geral').innerText = this.formatarMoeda(d.saldoGeralContas);
-    document.getElementById('kpi-receitas').innerText = this.formatarMoeda(totalReceitasMes);
-    document.getElementById('kpi-despesas').innerText = this.formatarMoeda(totalDespesasMes);
+    document.getElementById('kpi-saldo-geral').innerHTML = `<span class="valor-monetario">${this.formatarMoeda(d.saldoGeralContas)}</span>`;
+    document.getElementById('kpi-receitas').innerHTML = `<span class="valor-monetario">${this.formatarMoeda(totalReceitasMes)}</span>`;
+    document.getElementById('kpi-despesas').innerHTML = `<span class="valor-monetario">${this.formatarMoeda(totalDespesasMes)}</span>`;
     document.getElementById('kpi-pendentes').innerText = pendentesCount;
 
     const ttPendentes = document.getElementById('tooltip-pendentes');
@@ -328,9 +399,11 @@ const app = {
           plugins: { 
             legend: { position: 'right', labels: { color: 'var(--text-primary)' } },
             datalabels: {
-              formatter: function(value) { return app.formatarMoeda(value); },
-              color: '#fff',
-              font: { weight: 'bold' },
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              color: '#ffffff',
+              font: { weight: 'bold', size: 11 },
+              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeWidth: 3,
               display: function(context) { return context.dataset.data[context.dataIndex] > 0; }
             }
           }
@@ -379,9 +452,11 @@ const app = {
             datalabels: {
               anchor: 'end',
               align: 'top',
-              formatter: function(value) { return app.formatarMoeda(value); },
-              color: 'var(--text-primary)',
-              font: { size: 10 }
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              color: '#ffffff',
+              font: { weight: 'bold', size: 11 },
+              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeWidth: 3
             }
           },
           scales: {
@@ -411,7 +486,7 @@ const app = {
             </div>
           </div>
           <div class="card-balance" style="color: ${saldo < 0 ? 'var(--danger)' : 'var(--text-primary)'}">
-            ${this.formatarMoeda(saldo)}
+            <span class="valor-monetario">${this.formatarMoeda(saldo)}</span>
           </div>
           <div class="card-footer">
             <span>Banco: ${c.Banco || '-'}</span>
@@ -518,9 +593,11 @@ const app = {
             datalabels: {
               anchor: 'end',
               align: 'top',
-              formatter: function(value) { return app.formatarMoeda(value); },
-              color: 'var(--text-primary)',
-              font: { size: 11, weight: '500' }
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              color: '#ffffff',
+              font: { weight: 'bold', size: 11 },
+              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeWidth: 3
             }
           },
           scales: {
@@ -564,9 +641,11 @@ const app = {
             datalabels: {
               anchor: 'end',
               align: 'top',
-              formatter: function(value) { return app.formatarMoeda(value); },
-              color: 'var(--text-primary)',
-              font: { size: 11, weight: '500' }
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              color: '#ffffff',
+              font: { weight: 'bold', size: 11 },
+              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeWidth: 3
             }
           },
           scales: {
@@ -621,8 +700,8 @@ const app = {
               <button class="icon-btn" onclick="app.excluirReserva('${r.ID}')" title="Excluir"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
-          <div class="card-balance">${this.formatarMoeda(valorAtual)}</div>
-          <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Meta: ${this.formatarMoeda(metaValor)}</div>
+          <div class="card-balance"><span class="valor-monetario">${this.formatarMoeda(valorAtual)}</span></div>
+          <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Meta: <span class="valor-monetario">${this.formatarMoeda(metaValor)}</span></div>
           <div style="width:100%; height:8px; background:var(--bg-app); border-radius:4px; overflow:hidden;">
             <div style="width:${barWidth}%; height:100%; background:${barColor}; transition:width 0.3s;"></div>
           </div>
@@ -647,7 +726,7 @@ const app = {
               <button class="icon-btn" onclick="app.excluirCartao('${c.ID}')" title="Excluir Cartão"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
-          <div style="font-size:0.9rem; margin-bottom:5px;">Limite: <strong>${this.formatarMoeda(c.Limite)}</strong></div>
+          <div style="font-size:0.9rem; margin-bottom:5px;">Limite: <strong><span class="valor-monetario">${this.formatarMoeda(c.Limite)}</span></strong></div>
           <div style="font-size:0.8rem; color:var(--text-secondary);">Fecha dia ${c.Dia_Fechamento} | Vence dia ${c.Dia_Vencimento}</div>
         </div>
       `;
