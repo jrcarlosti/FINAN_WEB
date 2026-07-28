@@ -156,6 +156,13 @@ canvas {
 .btn-primary:hover { background: var(--primary-hover); box-shadow: var(--shadow-md); }
 .btn-secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color); }
 .btn-secondary:hover { background: var(--border-color); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #059669; box-shadow: var(--shadow-md); }
+.btn-warning { background: var(--warning); color: #fff; }
+.btn-warning:hover { background: #d97706; box-shadow: var(--shadow-md); }
+.btn-outline { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
+.btn-outline:hover { background: var(--bg-card); border-color: var(--text-secondary); }
+.btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* KPI CARDS (DASHBOARD) */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
@@ -267,6 +274,8 @@ canvas {
 .form-control { padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-primary); outline: none; font-family: inherit; transition: var(--transition); }
 .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
 .modal-footer { padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
+.modal form > .form-group { padding: 0 20px; margin-bottom: 15px; }
+.modal form > input[type="hidden"] + .form-group { margin-top: 15px; }
 
 /* SETTINGS CARD */
 .settings-card { background: var(--bg-card); padding: 30px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); max-width: 600px; }

@@ -149,6 +149,9 @@ const app = {
 
     if (route === 'configuracoes') {
       document.getElementById('input-api-url').value = SCRIPT_URL;
+      const emailSalvo = localStorage.getItem('fin_email_alerta') || '';
+      const emailInput = document.getElementById('input-email-alerta');
+      if (emailInput) emailInput.value = emailSalvo;
     }
   },
 
@@ -197,6 +200,9 @@ const app = {
       const fieldDest = document.getElementById('transf-data-destino');
       if (fieldOrigem) fieldOrigem.value = today;
       if (fieldDest) fieldDest.value = today;
+    } else if (id === 'modal-limite-cartao') {
+      const fieldData = document.getElementById('limite-data');
+      if (fieldData) fieldData.value = today;
     }
   },
 
@@ -357,6 +363,13 @@ const app = {
     document.getElementById('kpi-despesas').innerHTML = `<span class="valor-monetario">${this.formatarMoeda(totalDespesasMes)}</span>`;
     document.getElementById('kpi-pendentes').innerText = pendentesCount;
 
+    const kpiSaldoMes = document.getElementById('kpi-saldo-mes');
+    if (kpiSaldoMes) {
+      kpiSaldoMes.innerHTML = `<span class="valor-monetario">${this.formatarMoeda(totalReceitasMes - totalDespesasMes)}</span>`;
+      // Optional: change color based on positive/negative
+      kpiSaldoMes.style.color = (totalReceitasMes - totalDespesasMes) >= 0 ? 'var(--success)' : 'var(--danger)';
+    }
+
     const ttPendentes = document.getElementById('tooltip-pendentes');
     if (ttPendentes) {
       if (pendentesCount > 0) {
@@ -384,25 +397,54 @@ const app = {
         values.push(1);
       }
 
+      const totalDespesas = values.reduce((a, b) => a + b, 0);
+
       this.chartCategorias = new Chart(ctx, {
         type: 'doughnut',
         data: {
           labels: labels,
           datasets: [{
             data: values,
-            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981', '#64748b'],
-            borderWidth: 0
+            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981', '#64748b', '#06b6d4', '#f97316'],
+            borderWidth: 2,
+            borderColor: '#1e293b'
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: { 
-            legend: { position: 'right', labels: { color: 'var(--text-primary)' } },
+            legend: {
+              position: 'right',
+              labels: {
+                color: '#e2e8f0',
+                font: { size: 13, weight: '600' },
+                padding: 18,
+                boxWidth: 14,
+                boxHeight: 14,
+                generateLabels: function(chart) {
+                  const data = chart.data;
+                  return data.labels.map((label, i) => {
+                    const val = data.datasets[0].data[i];
+                    const pct = totalDespesas > 0 ? ((val / totalDespesas) * 100).toFixed(1) : 0;
+                    return {
+                      text: `${label}  ${pct}%`,
+                      fillStyle: data.datasets[0].backgroundColor[i],
+                      strokeStyle: data.datasets[0].backgroundColor[i],
+                      hidden: false,
+                      index: i
+                    };
+                  });
+                }
+              }
+            },
             datalabels: {
-              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              formatter: function(value, ctx) {
+                const pct = totalDespesas > 0 ? ((value / totalDespesas) * 100).toFixed(1) + '%' : '';
+                return app.ocultarValoresGraficos ? '••••' : pct;
+              },
               color: '#ffffff',
-              font: { weight: 'bold', size: 11 },
-              textStrokeColor: 'rgba(0,0,0,0.5)',
+              font: { weight: 'bold', size: 12 },
+              textStrokeColor: 'rgba(0,0,0,0.7)',
               textStrokeWidth: 3,
               display: function(context) { return context.dataset.data[context.dataIndex] > 0; }
             }
@@ -440,28 +482,37 @@ const app = {
         data: {
           labels: labelsEvo,
           datasets: [
-            { label: 'Receitas', data: dataRec, backgroundColor: '#10b981' },
-            { label: 'Despesas', data: dataDes, backgroundColor: '#ef4444' }
+            { label: 'Receitas', data: dataRec, backgroundColor: '#10b981', borderRadius: 4 },
+            { label: 'Despesas', data: dataDes, backgroundColor: '#ef4444', borderRadius: 4 }
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           layout: { padding: { top: 30 } },
           plugins: { 
-            legend: { labels: { color: 'var(--text-primary)' } },
+            legend: {
+              labels: {
+                color: '#e2e8f0',
+                font: { size: 13, weight: '600' },
+                padding: 20,
+                boxWidth: 14,
+                boxHeight: 14,
+                usePointStyle: true
+              }
+            },
             datalabels: {
               anchor: 'end',
               align: 'top',
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
-              color: '#ffffff',
+              color: '#e2e8f0',
               font: { weight: 'bold', size: 11 },
-              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeColor: 'rgba(0,0,0,0.7)',
               textStrokeWidth: 3
             }
           },
           scales: {
-            x: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' } },
-            y: { ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border-color)' } }
+            x: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } }
           }
         }
       });
@@ -533,6 +584,12 @@ const app = {
       return;
     }
 
+    // Mostrar coluna KM apenas se algum lançamento tiver KM
+    const temKM = movs.some(m => m.KM && String(m.KM).trim() !== '');
+    const thKM = document.getElementById('th-km');
+    if (thKM) thKM.style.display = temKM ? '' : 'none';
+    const colspan = temKM ? 10 : 9;
+
     movs.forEach(m => {
       const conta = this.data.contas.find(c => c.ID === m.ID_Conta_Origem) || this.data.reservas.find(r => r.ID === m.ID_Reserva) || { Nome: '-' };
       const cartao = this.data.cartoes.find(c => c.ID === m.ID_Cartao) || { Nome: '-' };
@@ -546,6 +603,7 @@ const app = {
           <td>${this.formatarData(m.Data)}</td>
           <td><strong>${m.Descricao}</strong></td>
           <td>${m.Categoria}</td>
+          ${temKM ? `<td>${m.KM ? `<span style="font-size:0.8rem;background:var(--bg-app);padding:2px 6px;border-radius:4px;">🗘️ ${Number(m.KM).toLocaleString('pt-BR')} km</span>` : '-'}</td>` : ''}
           <td>${cartao.Nome !== '-' ? '<i data-lucide="credit-card" style="width:14px; margin-right:5px; vertical-align:bottom;"></i>'+cartao.Nome : '-'}</td>
           <td>${m.Parcela_Info || '-'}</td>
           <td>${conta.Nome}</td>
@@ -583,6 +641,7 @@ const app = {
             label: 'Saldo da Conta',
             data: data,
             backgroundColor: bgColors,
+            borderRadius: 4
           }]
         },
         options: {
@@ -594,15 +653,15 @@ const app = {
               anchor: 'end',
               align: 'top',
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
-              color: '#ffffff',
+              color: '#e2e8f0',
               font: { weight: 'bold', size: 11 },
-              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeColor: 'rgba(0,0,0,0.7)',
               textStrokeWidth: 3
             }
           },
           scales: {
-            x: { ticks: { color: 'var(--text-secondary)' } },
-            y: { ticks: { color: 'var(--text-secondary)' } }
+            x: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } }
           }
         }
       });
@@ -631,6 +690,7 @@ const app = {
             label: 'Valores',
             data: [totalEntradas, totalSaidas, saldo],
             backgroundColor: ['#10b981', '#ef4444', saldo >= 0 ? '#3b82f6' : '#ef4444'],
+            borderRadius: 4
           }]
         },
         options: {
@@ -642,15 +702,15 @@ const app = {
               anchor: 'end',
               align: 'top',
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
-              color: '#ffffff',
+              color: '#e2e8f0',
               font: { weight: 'bold', size: 11 },
-              textStrokeColor: 'rgba(0,0,0,0.5)',
+              textStrokeColor: 'rgba(0,0,0,0.7)',
               textStrokeWidth: 3
             }
           },
           scales: {
-            x: { ticks: { color: 'var(--text-secondary)' } },
-            y: { ticks: { color: 'var(--text-secondary)' } }
+            x: { ticks: { color: '#94a3b8', font: { size: 13, weight: '600' } }, grid: { color: 'rgba(148,163,184,0.15)' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } }
           }
         }
       });
@@ -697,6 +757,7 @@ const app = {
             <span class="card-title"><i data-lucide="${r.Icone}" style="width:18px;height:18px;margin-right:5px;vertical-align:bottom;"></i>${r.Nome}</span>
             <div style="display:flex; gap:5px;">
               <button class="icon-btn" onclick="app.abrirAporte('${r.ID}')" title="Aporte/Resgate"><i data-lucide="arrow-right-left"></i></button>
+              <button class="icon-btn" onclick="app.editarReserva('${r.ID}')" title="Editar Reserva" style="color: var(--primary-color);"><i data-lucide="pencil"></i></button>
               <button class="icon-btn" onclick="app.excluirReserva('${r.ID}')" title="Excluir"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
@@ -722,6 +783,9 @@ const app = {
           <div class="card-header">
             <span class="card-title">${c.Nome}</span>
             <div style="display:flex; gap:8px; align-items:center;">
+              <button class="icon-btn" onclick="app.abrirAjusteLimite('${c.ID}')" title="Ajustar Limite do Cartão" style="color: var(--primary-color);">
+                <i data-lucide="sliders-horizontal"></i>
+              </button>
               <button class="icon-btn" onclick="app.editarCartao('${c.ID}')" title="Editar Cartão"><i data-lucide="pencil"></i></button>
               <button class="icon-btn" onclick="app.excluirCartao('${c.ID}')" title="Excluir Cartão"><i data-lucide="trash-2"></i></button>
             </div>
@@ -759,7 +823,7 @@ const app = {
 
     // Novos selects para transferencia, edicao e aporte
     const arr = [
-      'transf-conta-origem', 'transf-conta-destino', 'edit-conta', 'aporte-conta', 'cartao-conta', 'edit-cartao-conta'
+      'transf-conta-origem', 'transf-conta-destino', 'edit-conta', 'aporte-conta', 'cartao-conta', 'edit-cartao-conta', 'limite-conta'
     ];
     arr.forEach(id => {
       const el = document.getElementById(id);
@@ -869,18 +933,31 @@ const app = {
     const btn = document.querySelector('#form-lancamento button[type="submit"]');
     btn.disabled = true; btn.innerText = 'Salvando...';
 
+    // Se tiver calculadora no input, força o cálculo final
+    this.calcularExpressao(document.getElementById('lanc-valor'));
+
+    const descricao = document.getElementById('lanc-descricao').value.trim();
+    const catSelect = document.getElementById('lanc-categoria');
+    const categoriaNome = catSelect.options[catSelect.selectedIndex]?.text || '';
+    
+    // KM como campo separado — NAO mistura com a descricao
+    const kmValor = (categoriaNome.toUpperCase() === 'CARRO')
+      ? (document.getElementById('lanc-km')?.value.trim() || '')
+      : '';
+
     const payload = {
       acao: 'registrar_movimentacao',
       dados: {
         Tipo: document.getElementById('lanc-tipo').value,
         Data: document.getElementById('lanc-data').value,
-        Descricao: document.getElementById('lanc-descricao').value,
+        Descricao: descricao,
         Valor: document.getElementById('lanc-valor').value,
         ID_Conta_Origem: document.getElementById('lanc-conta').value,
         Categoria: document.getElementById('lanc-categoria').value,
         Status: document.getElementById('lanc-status').value,
         ID_Cartao: document.getElementById('lanc-cartao').value,
-        Parcelas: document.getElementById('lanc-parcelas').value
+        Parcelas: document.getElementById('lanc-parcelas').value,
+        KM: kmValor
       }
     };
 
@@ -891,15 +968,20 @@ const app = {
       payload.dados.ID_Conta_Origem = '';
     }
 
+    // UX Otimizado: Fecha modal imediatamente, reseta formulário e simula sucesso instantâneo
+    this.fecharModal('modal-lancamento');
+    document.getElementById('form-lancamento').reset();
+    document.getElementById('grupo-km').style.display = 'none';
+    this.mostrarToast('Sincronizando com a nuvem...', 'info');
+    
+    // Libera o botão silenciosamente
+    btn.disabled = false; btn.innerText = 'Salvar Lançamento';
+
     this.requestEscrita(payload).then(res => {
-      this.mostrarToast(res.mensagem, 'success');
-      this.fecharModal('modal-lancamento');
-      document.getElementById('form-lancamento').reset();
-      this.carregarDadosIniciais();
+      this.mostrarToast(res.mensagem || 'Salvo com sucesso!', 'success');
+      this.carregarDadosIniciais(); // Recarrega silenciosamente em background
     }).catch(err => {
-      this.mostrarToast(err, 'error');
-    }).finally(() => {
-      btn.disabled = false; btn.innerText = 'Salvar Lançamento';
+      this.mostrarToast('Erro ao salvar: ' + err, 'error');
     });
   },
 
@@ -1104,24 +1186,46 @@ const app = {
     }).catch(err => this.mostrarToast(err, 'error'));
   },
 
-  // --- RESERVAS ---
   salvarReserva() {
+    const id = document.getElementById('reserva-id').value;
+    const isEdicao = !!id;
     const payload = {
-      acao: 'criar_reserva',
+      acao: isEdicao ? 'atualizar_reserva' : 'criar_reserva',
+      id: isEdicao ? id : undefined,
       dados: {
-        Nome: document.getElementById('reserva-nome').value,
+        Nome:       document.getElementById('reserva-nome').value,
         Meta_Valor: document.getElementById('reserva-meta').value,
-        Valor_Atual: document.getElementById('reserva-saldo').value,
-        Cor: document.getElementById('reserva-cor').value,
-        Icone: document.getElementById('reserva-icone').value
+        Cor:        document.getElementById('reserva-cor').value,
+        Icone:      document.getElementById('reserva-icone').value
       }
     };
+    // Saldo inicial apenas na criação
+    if (!isEdicao) {
+      payload.dados.Valor_Atual = document.getElementById('reserva-saldo').value;
+    }
     this.requestEscrita(payload).then(res => {
       this.mostrarToast(res.mensagem, 'success');
       this.fecharModal('modal-reserva');
       document.getElementById('form-reserva').reset();
+      document.getElementById('reserva-id').value = '';
+      document.getElementById('titulo-modal-reserva').innerText = 'Nova Reserva (Meta)';
+      document.getElementById('btn-salvar-reserva').innerText = 'Criar Reserva';
       this.carregarDadosIniciais();
     }).catch(err => this.mostrarToast(err, 'error'));
+  },
+
+  editarReserva(id) {
+    const r = this.data.reservas.find(x => x.ID === id);
+    if (!r) return;
+    document.getElementById('reserva-id').value = r.ID;
+    document.getElementById('reserva-nome').value = r.Nome;
+    document.getElementById('reserva-meta').value = r.Meta_Valor || 0;
+    document.getElementById('reserva-saldo').value = r.Valor_Atual || 0;
+    document.getElementById('reserva-cor').value = r.Cor || '#10b981';
+    document.getElementById('reserva-icone').value = r.Icone || 'piggy-bank';
+    document.getElementById('titulo-modal-reserva').innerText = `Editar Reserva: ${r.Nome}`;
+    document.getElementById('btn-salvar-reserva').innerText = 'Salvar Alterações';
+    this.abrirModal('modal-reserva');
   },
 
   excluirReserva(id) {
@@ -1189,6 +1293,215 @@ const app = {
       this.mostrarToast(res.mensagem, 'success');
       this.carregarDadosIniciais();
     }).catch(err => this.mostrarToast(err, 'error'));
+  },
+
+  // ── AJUSTE DE LIMITE DO CARTÃO ──
+  abrirAjusteLimite(id) {
+    const cartao = this.data.cartoes.find(c => c.ID === id);
+    if (!cartao) return;
+    document.getElementById('limite-cartao-id').value = id;
+    document.getElementById('limite-data').value = new Date().toISOString().substring(0, 10);
+    document.getElementById('limite-atual-display').value = this.formatarMoeda(cartao.Limite);
+    document.getElementById('titulo-modal-limite').innerText = `Ajustar Limite — ${cartao.Nome}`;
+    document.getElementById('limite-valor').value = '';
+    this.abrirModal('modal-limite-cartao');
+  },
+
+  salvarAjusteLimite() {
+    const btn = document.querySelector('#form-limite-cartao button[type="submit"]');
+    btn.disabled = true; btn.innerText = 'Salvando...';
+
+    const cartaoId  = document.getElementById('limite-cartao-id').value;
+    const tipo      = document.getElementById('limite-tipo').value;       // AUMENTAR | REDUZIR
+    const valor     = parseFloat(document.getElementById('limite-valor').value);
+    const data      = document.getElementById('limite-data').value;
+    const contaId   = document.getElementById('limite-conta').value;
+
+    if (!valor || valor <= 0) {
+      this.mostrarToast('Informe um valor válido.', 'warning');
+      btn.disabled = false; btn.innerText = 'Confirmar Ajuste';
+      return;
+    }
+
+    const cartao = this.data.cartoes.find(c => c.ID === cartaoId);
+    if (!cartao) return;
+
+    const novoLimite = tipo === 'AUMENTAR'
+      ? Number(cartao.Limite) + valor
+      : Math.max(0, Number(cartao.Limite) - valor);
+
+    // 1) Atualiza o limite do cartão
+    const payloadCartao = {
+      acao: 'atualizar_cartao',
+      id: cartaoId,
+      dados: { Limite: novoLimite }
+    };
+
+    // 2) Registra movimentação na conta bancária
+    const tipoMov = tipo === 'AUMENTAR' ? 'SAIDA' : 'ENTRADA';
+    const descMov = tipo === 'AUMENTAR'
+      ? `Aumento de Limite — ${cartao.Nome}`
+      : `Redução de Limite — ${cartao.Nome}`;
+
+    const payloadMov = {
+      acao: 'registrar_movimentacao',
+      dados: {
+        Tipo: tipoMov,
+        Data: data,
+        Descricao: descMov,
+        Valor: valor,
+        ID_Conta_Origem: contaId,
+        Categoria: 'Cartão de Crédito',
+        Status: 'PAGO'
+      }
+    };
+
+    this.requestEscrita(payloadCartao)
+      .then(() => this.requestEscrita(payloadMov))
+      .then(() => {
+        this.mostrarToast(`Limite ${tipo === 'AUMENTAR' ? 'aumentado' : 'reduzido'} com sucesso! Novo limite: ${this.formatarMoeda(novoLimite)}`, 'success');
+        this.fecharModal('modal-limite-cartao');
+        document.getElementById('form-limite-cartao').reset();
+        this.carregarDadosIniciais();
+      })
+      .catch(err => this.mostrarToast(err, 'error'))
+      .finally(() => {
+        btn.disabled = false; btn.innerText = 'Confirmar Ajuste';
+      });
+  },
+
+  // ── FLUXO — MARCAR EM LOTE ──
+  obterMovsFiltrados() {
+    const fTipo    = document.getElementById('filtro-tipo')?.value || 'todos';
+    const fConta   = document.getElementById('filtro-conta')?.value || 'todas';
+    const fStatus  = document.getElementById('filtro-status')?.value || 'todos';
+    const fCat     = document.getElementById('filtro-categoria')?.value || 'todas';
+    const fCartao  = document.getElementById('filtro-cartao')?.value || 'todos';
+    const fDesc    = document.getElementById('filtro-descricao')?.value.toLowerCase() || '';
+    const fDataIni = document.getElementById('filtro-data-inicio')?.value || '';
+    const fDataFim = document.getElementById('filtro-data-fim')?.value || '';
+
+    let movs = [...this.data.movimentacoes];
+    if (fTipo !== 'todos') movs = movs.filter(m => m.Tipo === fTipo);
+    if (fConta !== 'todas') movs = movs.filter(m => m.ID_Conta_Origem === fConta || m.ID_Conta_Destino === fConta || m.ID_Reserva === fConta);
+    if (fStatus !== 'todos') movs = movs.filter(m => String(m.Status).toUpperCase() === fStatus);
+    if (fCat !== 'todas') movs = movs.filter(m => m.Categoria === fCat);
+    if (fCartao !== 'todos') movs = movs.filter(m => String(m.ID_Cartao) === fCartao);
+    if (fDesc) movs = movs.filter(m => String(m.Descricao).toLowerCase().includes(fDesc));
+    if (fDataIni) movs = movs.filter(m => String(m.Data).substring(0, 10) >= fDataIni);
+    if (fDataFim) movs = movs.filter(m => String(m.Data).substring(0, 10) <= fDataFim);
+    return movs;
+  },
+
+  async marcarFiltradosComoPago() {
+    const movs = this.obterMovsFiltrados();
+    if (movs.length === 0) { this.mostrarToast('Nenhuma transação no filtro atual.', 'warning'); return; }
+    if (!confirm(`Marcar ${movs.length} transação(ões) como PAGO?`)) return;
+
+    const btn = document.getElementById('btn-pagar-filtro');
+    if (btn) { btn.disabled = true; btn.innerText = 'Processando...'; }
+
+    this.mostrarToast(`Atualizando ${movs.length} lançamentos...`, 'info');
+    try {
+      for (const m of movs) {
+        await this.requestEscrita({ acao: 'atualizar_status_mov', id: m.ID, status: 'PAGO' });
+      }
+      this.mostrarToast(`${movs.length} transação(ões) marcadas como PAGO!`, 'success');
+      this.carregarDadosIniciais();
+    } catch (err) {
+      this.mostrarToast('Erro ao atualizar: ' + err, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="check-circle"></i> PAGO'; lucide.createIcons(); }
+    }
+  },
+
+  async marcarFiltradosComoPendente() {
+    const movs = this.obterMovsFiltrados();
+    if (movs.length === 0) { this.mostrarToast('Nenhuma transação no filtro atual.', 'warning'); return; }
+    if (!confirm(`Desmarcar ${movs.length} transação(ões) para PENDENTE?`)) return;
+
+    const btn = document.getElementById('btn-desmarcar-filtro');
+    if (btn) { btn.disabled = true; btn.innerText = 'Processando...'; }
+
+    this.mostrarToast(`Atualizando ${movs.length} lançamentos...`, 'info');
+    try {
+      for (const m of movs) {
+        await this.requestEscrita({ acao: 'atualizar_status_mov', id: m.ID, status: 'PENDENTE' });
+      }
+      this.mostrarToast(`${movs.length} transação(ões) marcadas como PENDENTE!`, 'success');
+      this.carregarDadosIniciais();
+    } catch (err) {
+      this.mostrarToast('Erro ao atualizar: ' + err, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="circle-slash"></i> DESMARCAR'; lucide.createIcons(); }
+    }
+  },
+
+  // ── ALERTA DE E-MAIL ──
+  salvarEmailAlerta() {
+    const email = document.getElementById('input-email-alerta')?.value.trim();
+    if (!email || !email.includes('@')) {
+      this.mostrarToast('Informe um e-mail válido.', 'warning');
+      return;
+    }
+    localStorage.setItem('fin_email_alerta', email);
+    this.mostrarToast('Ativando alerta... isso pode levar alguns segundos.', 'info');
+
+    this.requestEscrita({ acao: 'configurar_alerta_email', email })
+      .then(res => {
+        this.mostrarToast(res.mensagem || 'Alerta de e-mail ativado com sucesso!', 'success');
+      })
+      .catch(err => {
+        const errorMsg = String(err);
+        if (errorMsg.includes('ScriptApp.getProjectTriggers')) {
+          this.mostrarToast('Autorização pendente! Execute a função "autorizar" no seu Apps Script para permitir envios.', 'error');
+        } else {
+          this.mostrarToast('Erro ao configurar alerta: ' + errorMsg, 'error');
+        }
+      });
+  },
+
+  removerEmailAlerta() {
+    if (!confirm('Desativar o alerta de e-mail diário?')) return;
+    localStorage.removeItem('fin_email_alerta');
+    const emailInput = document.getElementById('input-email-alerta');
+    if (emailInput) emailInput.value = '';
+
+    this.requestEscrita({ acao: 'remover_alerta_email' })
+      .then(res => {
+        this.mostrarToast(res.mensagem || 'Alerta de e-mail desativado!', 'success');
+      })
+      .catch(err => this.mostrarToast('Erro ao remover alerta: ' + err, 'error'));
+  },
+
+  // ── FUNÇÕES AUXILIARES DE UX ──
+  calcularExpressao(inputEl) {
+    if (!inputEl || !inputEl.value) return;
+    try {
+      // Troca vírgula por ponto para cálculo e permite apenas matemática básica
+      let val = inputEl.value.replace(',', '.');
+      if (/^[0-9+\-*/.() ]+$/.test(val)) {
+        let resultado = Function(`'use strict'; return (${val})`)();
+        inputEl.value = Number(resultado).toFixed(2);
+      }
+    } catch (e) {
+      // Expressão inválida, ignora
+    }
+  },
+
+  verificarCategoriaCarro(selectEl, grupoKmId) {
+    if (!selectEl) return;
+    const nomeCat = selectEl.options[selectEl.selectedIndex]?.text || '';
+    const divKm = document.getElementById(grupoKmId);
+    if (divKm) {
+      if (nomeCat.toUpperCase() === 'CARRO') {
+        divKm.style.display = 'flex';
+      } else {
+        divKm.style.display = 'none';
+        const inputKm = document.getElementById('lanc-km');
+        if (inputKm) inputKm.value = '';
+      }
+    }
   }
 
 };

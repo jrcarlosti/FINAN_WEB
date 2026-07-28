@@ -20,7 +20,7 @@
 
 const HEADERS = {
   CONTAS:        ['ID','Nome','Tipo','Banco','Saldo_Inicial','Saldo_Atual','Cor','Ativo'],
-  MOVIMENTACOES: ['ID','Data','Hora','Tipo','Descricao','Valor','ID_Conta_Origem','ID_Conta_Destino','Categoria','Forma_Pagamento','Status','ID_Cartao','Parcela_Info','ID_Reserva','Observacao','Operador'],
+  MOVIMENTACOES: ['ID','Data','Hora','Tipo','Descricao','Valor','ID_Conta_Origem','ID_Conta_Destino','Categoria','Forma_Pagamento','Status','ID_Cartao','Parcela_Info','ID_Reserva','Observacao','Operador','KM'],
   CARTOES:       ['ID','Nome','Limite','Dia_Fechamento','Dia_Vencimento','ID_Conta_Pagamento','Cor','Ativo'],
   FATURAS:       ['ID','ID_Cartao','Mes_Ano','Valor_Total','Status','Data_Vencimento'],
   RESERVAS:      ['ID','Nome','Meta_Valor','Valor_Atual','Cor','Icone','Status'],
@@ -247,7 +247,8 @@ function registrarMovimentacao(d) {
         id, dtFormatted, hr, d.Tipo || 'SAIDA', desc, valorParcela,
         d.ID_Conta_Origem || '', d.ID_Conta_Destino || '', d.Categoria || 'Geral',
         d.Forma_Pagamento || 'PIX', status, d.ID_Cartao || '',
-        `${p}/${parcelas}`, d.ID_Reserva || '', d.Observacao || '', d.Operador || 'Sistema'
+        `${p}/${parcelas}`, d.ID_Reserva || '', d.Observacao || '', d.Operador || 'Sistema',
+        (p === 1 ? (d.KM || '') : '') // KM somente na 1a parcela
       ]);
       
       if (d.ID_Reserva) {
@@ -269,7 +270,8 @@ function registrarMovimentacao(d) {
     id, dt, hr, d.Tipo || 'SAIDA', d.Descricao || '', valor,
     d.ID_Conta_Origem || '', d.ID_Conta_Destino || '', d.Categoria || 'Geral',
     d.Forma_Pagamento || 'PIX', status, d.ID_Cartao || '',
-    d.Parcela_Info || '', d.ID_Reserva || '', d.Observacao || '', d.Operador || 'Sistema'
+    d.Parcela_Info || '', d.ID_Reserva || '', d.Observacao || '', d.Operador || 'Sistema',
+    d.KM || ''
   ]);
 
   if (d.ID_Reserva) {
@@ -288,7 +290,7 @@ function atualizarMovimentacao(id, d) {
 
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][idxId]) === String(id)) {
-      ['Tipo', 'Data', 'Descricao', 'Valor', 'ID_Conta_Origem', 'ID_Conta_Destino', 'Categoria', 'Forma_Pagamento', 'Status', 'ID_Cartao', 'Parcela_Info', 'ID_Reserva', 'Observacao'].forEach(c => {
+      ['Tipo', 'Data', 'Descricao', 'Valor', 'ID_Conta_Origem', 'ID_Conta_Destino', 'Categoria', 'Forma_Pagamento', 'Status', 'ID_Cartao', 'Parcela_Info', 'ID_Reserva', 'Observacao', 'KM'].forEach(c => {
         if (d[c] !== undefined) {
           const col = h.indexOf(c) + 1;
           let val = d[c];
@@ -441,6 +443,28 @@ function excluirReserva(id) {
     if (String(rows[i][idxId]) === String(id)) {
       aba.deleteRow(i + 1);
       return { sucesso: true, mensagem: 'Reserva excluída!' };
+    }
+  }
+  return { sucesso: false, mensagem: 'Reserva não encontrada.' };
+}
+
+function atualizarReserva(id, d) {
+  const aba = getAba('RESERVAS');
+  const rows = aba.getDataRange().getValues();
+  const h = rows[0];
+  const idxId = h.indexOf('ID');
+
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idxId]) === String(id)) {
+      ['Nome', 'Meta_Valor', 'Cor', 'Icone'].forEach(c => {
+        if (d[c] !== undefined) {
+          const col = h.indexOf(c) + 1;
+          let val = d[c];
+          if (c === 'Meta_Valor') val = parseNum(val);
+          aba.getRange(i + 1, col).setValue(val);
+        }
+      });
+      return { sucesso: true, mensagem: 'Reserva atualizada com sucesso!' };
     }
   }
   return { sucesso: false, mensagem: 'Reserva não encontrada.' };
@@ -610,11 +634,14 @@ function rotearEscrita(b) {
     case 'excluir_cartao':           return excluirCartao(b.id);
     case 'registrar_compra_cartao':  return registrarCompraCartao(b.dados);
     case 'criar_reserva':            return criarReserva(b.dados);
+    case 'atualizar_reserva':        return atualizarReserva(b.id, b.dados);
     case 'excluir_reserva':          return excluirReserva(b.id);
     case 'criar_categoria':          return criarCategoria(b.dados);
     case 'atualizar_categoria':      return atualizarCategoria(b.id, b.dados);
     case 'excluir_categoria':        return excluirCategoria(b.id);
     case 'criar_usuario':            return criarUsuario(b.dados);
+    case 'configurar_alerta_email':  return criarGatilhoEmail(b.email);
+    case 'remover_alerta_email':     return removerGatilhoEmail();
     default: return { sucesso: false, mensagem: 'Ação de escrita não reconhecida: ' + b.acao };
   }
 }
@@ -673,4 +700,212 @@ function out(obj, callback) {
   return ContentService
     .createTextOutput(json)
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ── ALERTA DE E-MAIL POR VENCIMENTO ─────────────────────── */
+
+/**
+ * ============================================================
+ * IMPORTANTE: Para o alerta de e-mail funcionar (Triggers),
+ * selecione a função "autorizar" no menu superior do Apps Script e clique em "Executar".
+ * Isso solicitará as permissões necessárias (script.scriptapp).
+ * ============================================================
+ */
+function autorizar() {
+  const email = Session.getActiveUser().getEmail();
+  Logger.log("Autorização concedida por " + email);
+  // Apenas chamando ScriptApp para forçar a permissão no manifesto
+  ScriptApp.getProjectTriggers();
+}
+
+/**
+ * Salva o e-mail de alerta nas propriedades do script e cria o trigger diário às 08h.
+ * Chamado pelo front-end quando o usuário configura o alerta.
+ */
+function criarGatilhoEmail(email) {
+  if (!email || email.indexOf('@') < 0) {
+    return { sucesso: false, mensagem: 'E-mail inválido.' };
+  }
+
+  // Salva o e-mail nas propriedades do script (persistente)
+  PropertiesService.getScriptProperties().setProperty('ALERTA_EMAIL', email);
+
+  // Remove triggers antigos com o mesmo nome para evitar duplicatas
+  removerGatilhoEmail();
+
+  // Cria novo trigger diário às 08:00 (horário de Brasília)
+  ScriptApp.newTrigger('enviarAlertaVencimentos')
+    .timeBased()
+    .atHour(8)
+    .everyDays(1)
+    .inTimezone('America/Sao_Paulo')
+    .create();
+
+  return { sucesso: true, mensagem: 'Alerta de e-mail ativado! Será enviado diariamente às 08:00 para ' + email };
+}
+
+/**
+ * Remove todos os triggers de alerta de vencimento.
+ */
+function removerGatilhoEmail() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    if (t.getHandlerFunction() === 'enviarAlertaVencimentos') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  PropertiesService.getScriptProperties().deleteProperty('ALERTA_EMAIL');
+  return { sucesso: true, mensagem: 'Alerta de e-mail desativado com sucesso.' };
+}
+
+/**
+ * Função principal executada pelo trigger às 08:00.
+ * Verifica movimentações PENDENTES vencidas ou próximas do vencimento e envia e-mail.
+ */
+function enviarAlertaVencimentos() {
+  const email = PropertiesService.getScriptProperties().getProperty('ALERTA_EMAIL');
+  if (!email) return; // Sem e-mail configurado, não faz nada
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const movs = abaParaJSON('MOVIMENTACOES');
+  const pendentes = movs.filter(m => String(m.Status).toUpperCase() === 'PENDENTE');
+
+  const vencidas = [];
+  const aVencer  = [];
+
+  pendentes.forEach(m => {
+    if (!m.Data) return;
+    const dtStr = formatarDataVal(m.Data);
+    if (!dtStr) return;
+
+    const partes = dtStr.split('-');
+    if (partes.length !== 3) return;
+    const dtMov = new Date(partes[0], partes[1] - 1, partes[2]);
+    dtMov.setHours(0, 0, 0, 0);
+
+    const diffMs   = dtMov.getTime() - hoje.getTime();
+    const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDias < 0) {
+      // Já venceu — quantos dias atrás
+      vencidas.push({ ...m, diasVencidos: Math.abs(diffDias), dataFormatada: dtStr });
+    } else if (diffDias >= 0 && diffDias <= 3) {
+      // Vence em até 3 dias
+      aVencer.push({ ...m, diasRestantes: diffDias, dataFormatada: dtStr });
+    }
+  });
+
+  // Se não há nada a reportar, não envia e-mail
+  if (vencidas.length === 0 && aVencer.length === 0) return;
+
+  // ── Monta o corpo do e-mail em HTML ──────────────────────
+  const formatarBRL = v => {
+    return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const formatarDtBR = iso => {
+    if (!iso) return '';
+    const p = iso.split('-');
+    return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : iso;
+  };
+
+  let tabelaVencidas = '';
+  if (vencidas.length > 0) {
+    tabelaVencidas = `
+      <h2 style="color:#ef4444;margin-top:30px;">🔴 Transações Vencidas (${vencidas.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#fee2e2;">
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:left;">Descrição</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:left;">Vencimento</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:right;">Valor</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:center;">Dias Vencidos</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${vencidas.map(m => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${m.Descricao || '-'}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${formatarDtBR(m.dataFormatada)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:#ef4444;font-weight:bold;">${formatarBRL(m.Valor)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;color:#ef4444;font-weight:bold;">⚠️ ${m.diasVencidos} dia(s)</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  let tabelaAVencer = '';
+  if (aVencer.length > 0) {
+    tabelaAVencer = `
+      <h2 style="color:#f59e0b;margin-top:30px;">🟡 Vencendo em Breve (${aVencer.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#fef3c7;">
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:left;">Descrição</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:left;">Vencimento</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:right;">Valor</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:center;">Dias Restantes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${aVencer.map(m => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${m.Descricao || '-'}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${formatarDtBR(m.dataFormatada)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:#f59e0b;font-weight:bold;">${formatarBRL(m.Valor)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;">${m.diasRestantes === 0 ? '🔥 Vence <strong>HOJE</strong>' : '⏳ ' + m.diasRestantes + ' dia(s)'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  const dataHojeFormatada = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy');
+
+  const corpoHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#1e293b;">
+      <div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:25px 30px;border-radius:12px;margin-bottom:25px;">
+        <h1 style="color:#f8fafc;margin:0;font-size:22px;">💰 FIN — Alerta de Vencimentos</h1>
+        <p style="color:#94a3b8;margin:8px 0 0;">Relatório gerado automaticamente em ${dataHojeFormatada}</p>
+      </div>
+
+      ${vencidas.length > 0 || aVencer.length > 0 ? `
+        <div style="background:#f1f5f9;border-radius:8px;padding:15px 20px;margin-bottom:20px;">
+          <strong>Resumo do dia:</strong>
+          ${vencidas.length > 0 ? `<span style="color:#ef4444;margin-left:15px;">🔴 ${vencidas.length} vencida(s)</span>` : ''}
+          ${aVencer.length > 0 ? `<span style="color:#f59e0b;margin-left:15px;">🟡 ${aVencer.length} a vencer em até 3 dias</span>` : ''}
+        </div>
+      ` : ''}
+
+      ${tabelaVencidas}
+      ${tabelaAVencer}
+
+      <p style="margin-top:30px;font-size:12px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:15px;">
+        Este e-mail é enviado automaticamente pelo sistema FIN às 08:00 todos os dias.
+        Para desativar, acesse Configurações > Alerta de Vencimentos por E-mail.
+      </p>
+    </body>
+    </html>
+  `;
+
+  const assunto = `[FIN] Alerta de Vencimentos — ${vencidas.length} vencida(s), ${aVencer.length} a vencer — ${dataHojeFormatada}`;
+
+  try {
+    MailApp.sendEmail({
+      to: email,
+      subject: assunto,
+      htmlBody: corpoHtml
+    });
+    Logger.log('Alerta enviado para: ' + email);
+  } catch (e) {
+    Logger.log('Erro ao enviar alerta: ' + e.message);
+  }
 }
