@@ -239,9 +239,13 @@
             <button class="btn btn-primary" onclick="app.abrirModal('modal-lancamento')">Novo Lançamento</button>
           </div>
         </div>
-        <div class="charts-row" style="margin-bottom: 20px;">
+                <div class="charts-row" style="margin-bottom: 20px;">
           <div class="chart-container">
-            <h3>Fluxo de Caixa</h3>
+            <h3>TOTAL (Consolidado)</h3>
+            <canvas id="chart-total-consolidado"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Fluxo de Caixa por Conta</h3>
             <canvas id="chart-contas-saldo"></canvas>
           </div>
           <div class="chart-container">

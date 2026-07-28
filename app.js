@@ -12,6 +12,7 @@ const app = {
   chartEvolucao: null,
   chartContas: null,
   chartFluxoResumo: null,
+  chartTotalConsolidado: null,
   ordemDataAsc: true,
   ocultarValoresGraficos: false,
 
@@ -123,6 +124,7 @@ const app = {
       if (this.chartEvolucao) this.chartEvolucao.update();
       if (this.chartContas) this.chartContas.update();
       if (this.chartFluxoResumo) this.chartFluxoResumo.update();
+      if (this.chartTotalConsolidado) this.chartTotalConsolidado.update();
     });
   },
 
@@ -523,6 +525,28 @@ const app = {
     const container = document.getElementById('lista-contas');
     container.innerHTML = '';
     
+    const totalSaldo = this.data.contas.reduce((acc, c) => acc + Number(c.Saldo_Atual), 0);
+
+    // Card de Total
+    container.innerHTML += `
+      <div class="card" style="border-top: 4px solid var(--primary-color); background: rgba(59, 130, 246, 0.05);">
+        <div class="card-header">
+          <div>
+            <span class="card-title">Total</span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <i data-lucide="plus-circle" style="color: var(--primary-color);"></i>
+          </div>
+        </div>
+        <div class="card-balance" style="color: ${totalSaldo < 0 ? 'var(--danger)' : 'var(--text-primary)'}">
+          <span class="valor-monetario">${this.formatarMoeda(totalSaldo)}</span>
+        </div>
+        <div class="card-footer">
+          <span>Soma de todas as contas</span>
+        </div>
+      </div>
+    `;
+
     this.data.contas.forEach(c => {
       const saldo = Number(c.Saldo_Atual);
       container.innerHTML += `
@@ -623,6 +647,49 @@ const app = {
   },
 
   renderGraficosFluxo(movs) {
+    // 0. Gráfico TOTAL (Soma das Contas)
+    const ctxTotal = document.getElementById('chart-total-consolidado');
+    if (ctxTotal) {
+      if (this.chartTotalConsolidado) this.chartTotalConsolidado.destroy();
+      
+      const totalGeral = this.data.contas.reduce((acc, c) => acc + Number(c.Saldo_Atual), 0);
+      
+      this.chartTotalConsolidado = new Chart(ctxTotal, {
+        type: 'bar',
+        data: {
+          labels: ['Saldo Total de Contas'],
+          datasets: [{
+            label: 'Total',
+            data: [totalGeral],
+            backgroundColor: ['#3b82f6'],
+            borderRadius: 8,
+            barThickness: 60
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          indexAxis: 'y',
+          layout: { padding: { right: 50 } },
+          plugins: { 
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end',
+              align: 'right',
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              color: '#e2e8f0',
+              font: { weight: 'bold', size: 14 },
+              textStrokeColor: 'rgba(0,0,0,0.7)',
+              textStrokeWidth: 3
+            }
+          },
+          scales: {
+            x: { display: false },
+            y: { ticks: { color: '#94a3b8', font: { size: 14, weight: '600' } }, grid: { display: false } }
+          }
+        }
+      });
+    }
+
     // 1. Gráfico Contas Bancárias (Saldo)
     const ctxContas = document.getElementById('chart-contas-saldo');
     if (ctxContas) {

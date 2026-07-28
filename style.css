@@ -214,7 +214,7 @@ canvas {
 }
 
 /* CHARTS ROW */
-.charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+.charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .chart-container {
   background: var(--bg-card); padding: 20px; border-radius: var(--radius-lg);
   border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);
