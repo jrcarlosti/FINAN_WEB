@@ -89,6 +89,9 @@
         <a href="#" class="nav-item" data-route="reservas">
           <i data-lucide="piggy-bank"></i> Caixas Reservas
         </a>
+        <a href="#" class="nav-item" data-route="investimentos">
+          <i data-lucide="trending-up"></i> Ações / Investimentos
+        </a>
         <hr class="nav-divider">
         <a href="#" class="nav-item" data-route="categorias">
           <i data-lucide="tags"></i> Categorias
@@ -121,6 +124,9 @@
           <span id="sync-status" style="display:none; align-items:center; gap:5px; color:var(--text-secondary); font-size:0.85rem; margin-right: 10px;">
             <i data-lucide="refresh-cw" class="spin" style="width:16px; height:16px;"></i> Sincronizando...
           </span>
+          <button id="btn-toggle-chart-size" class="btn btn-secondary" onclick="app.toggleChartSize()" title="Alternar tamanho dos gráficos">
+            <i data-lucide="minimize-2"></i> Compactar Gráficos
+          </button>
           <button class="btn btn-secondary" onclick="app.carregarDadosIniciais()" title="Sincronizar Manualmente">
             <i data-lucide="refresh-cw"></i> Sincronizar
           </button>
@@ -181,7 +187,10 @@
 
         <div class="charts-row">
           <div class="chart-container">
-            <h3>Evolução Mensal</h3>
+            <div class="chart-header">
+              <h3>Evolução Mensal</h3>
+              <span id="evolucao-saldo-total" class="chart-total">R$ 0,00</span>
+            </div>
             <canvas id="chart-evolucao"></canvas>
           </div>
           <div class="chart-container">
@@ -195,6 +204,12 @@
       <div id="view-contas" class="view">
         <div class="toolbar">
           <button class="btn btn-primary" onclick="app.abrirModal('modal-conta')"><i data-lucide="plus"></i> Nova Conta</button>
+        </div>
+        <div class="charts-row" style="margin-bottom: 20px;">
+          <div class="chart-container" style="width:100%; max-width:900px;">
+            <h3>Fluxo de Caixa por Conta</h3>
+            <canvas id="chart-contas-view" style="height:220px;"></canvas>
+          </div>
         </div>
         <div class="grid-cards" id="lista-contas">
           <!-- Contas renderizadas via JS -->
@@ -219,6 +234,7 @@
               <option value="todos">Todos os Status</option>
               <option value="PAGO">PAGO</option>
               <option value="PENDENTE">PENDENTE</option>
+              <option value="VENCIDO">VENCIDO</option>
             </select>
             <select id="filtro-categoria" onchange="app.renderFluxo()">
               <option value="todas">Todas Categorias</option>
@@ -241,8 +257,11 @@
         </div>
                 <div class="charts-row" style="margin-bottom: 20px;">
           <div class="chart-container">
-            <h3>TOTAL (Consolidado)</h3>
-            <canvas id="chart-total-consolidado"></canvas>
+            <div class="chart-header">
+              <h3>Cartões de Crédito</h3>
+              <span id="fluxo-cartoes-total" class="chart-total">R$ 0,00</span>
+            </div>
+            <canvas id="chart-cartoes-credito"></canvas>
           </div>
           <div class="chart-container">
             <h3>Fluxo de Caixa por Conta</h3>
@@ -306,9 +325,12 @@
               <li>O trigger é criado no Google Apps Script e roda automaticamente</li>
             </ul>
           </div>
-          <div class="form-actions">
+          <div class="form-actions" style="gap: 10px; flex-wrap: wrap;">
             <button class="btn btn-primary" onclick="app.salvarEmailAlerta()">
               <i data-lucide="bell"></i> Ativar Alerta de E-mail
+            </button>
+            <button class="btn btn-secondary" onclick="app.testarEmailAlerta()">
+              <i data-lucide="send"></i> Testar Envio de E-mail
             </button>
             <button class="btn btn-outline" onclick="app.removerEmailAlerta()">
               <i data-lucide="bell-off"></i> Desativar Alerta
@@ -320,6 +342,10 @@
       <!-- Outras views (Construção) -->
       <div id="view-cartoes" class="view">
         <div class="toolbar">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:0.9rem; color:var(--text-secondary);">Mês da Fatura</span>
+            <select id="filtro-fatura-mes" onchange="app.renderCartoes()" style="margin-right:12px; height:36px;"></select>
+          </label>
           <button class="btn btn-primary" onclick="app.abrirModal('modal-cartao')"><i data-lucide="plus"></i> Novo Cartão</button>
         </div>
         <div class="grid-cards" id="lista-cartoes"></div>
@@ -329,7 +355,26 @@
         <div class="toolbar">
           <button class="btn btn-primary" onclick="app.abrirModal('modal-reserva')"><i data-lucide="plus"></i> Nova Reserva</button>
         </div>
+        <div class="charts-row" style="margin-bottom: 20px;">
+          <div class="chart-container" style="width:100%; max-width:900px;">
+            <h3>Reservas (Fluxo por Reserva)</h3>
+            <canvas id="chart-reservas-view" style="height:220px;"></canvas>
+          </div>
+        </div>
         <div class="grid-cards" id="lista-reservas"></div>
+      </div>
+      
+      <div id="view-investimentos" class="view">
+        <div class="toolbar">
+          <button class="btn btn-primary" onclick="app.abrirModal('modal-investimento')"><i data-lucide="plus"></i> Novo Investimento</button>
+        </div>
+        <div class="charts-row" style="margin-bottom: 20px;">
+          <div class="chart-container" style="width:100%; max-width:900px;">
+            <h3>Ações / Investimentos</h3>
+            <canvas id="chart-investimentos-view" style="height:220px;"></canvas>
+          </div>
+        </div>
+        <div class="grid-cards" id="lista-investimentos"></div>
       </div>
       
       <div id="view-categorias" class="view">
@@ -649,6 +694,47 @@
     </div>
   </div>
 
+  <!-- Modal Investimento -->
+  <div id="modal-investimento" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Novo Investimento</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-investimento')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-investimento" onsubmit="event.preventDefault(); app.salvarInvestimento();">
+        <input type="hidden" id="investimento-id" value="">
+        <div class="form-group">
+          <label>Nome do Investimento</label>
+          <input type="text" id="investimento-nome" class="form-control" required placeholder="Ex: Ações PETR4">
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Valor Atual (R$)</label>
+            <input type="number" step="0.01" id="investimento-valor-atual" class="form-control" required value="0.00">
+          </div>
+          <div class="form-group">
+            <label>Meta (R$)</label>
+            <input type="number" step="0.01" id="investimento-meta" class="form-control" required value="0.00">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Cor</label>
+            <input type="color" id="investimento-cor" class="form-control" value="#0284c7" style="padding:0; height:42px;">
+          </div>
+          <div class="form-group">
+            <label>Ícone (Lucide)</label>
+            <input type="text" id="investimento-icone" class="form-control" value="trending-up" placeholder="Ex: trending-up, arrow-up-right">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-investimento')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Investimento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal Reserva -->
   <div id="modal-reserva" class="modal-overlay">
     <div class="modal">
@@ -696,12 +782,12 @@
         <button class="close-btn" onclick="app.fecharModal('modal-aporte')"><i data-lucide="x"></i></button>
       </div>
       <form id="form-aporte" onsubmit="event.preventDefault(); app.salvarAporte();">
-        <input type="hidden" id="aporte-reserva-id">
+        <input type="hidden" id="aporte-alvo-id">
         <div class="form-group">
           <label>Operação</label>
           <select id="aporte-tipo" class="form-control" required>
-            <option value="SAIDA">Fazer Aporte (+ na reserva, debitar da conta)</option>
-            <option value="ENTRADA">Fazer Resgate (- na reserva, creditar na conta)</option>
+            <option value="SAIDA">Fazer Aporte (+ no alvo, debitar da conta)</option>
+            <option value="ENTRADA">Fazer Resgate (- no alvo, creditar na conta)</option>
           </select>
         </div>
         <div class="form-grid">
@@ -765,6 +851,24 @@
           <button type="submit" class="btn btn-primary">Salvar Cartão</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal Fatura do Cartão -->
+  <div id="modal-fatura" class="modal-overlay">
+    <div class="modal" style="max-width:800px;">
+      <div class="modal-header">
+        <h3 id="modal-fatura-titulo">Fatura</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-fatura')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:16px; max-height:60vh; overflow:auto;">
+        <div id="modal-fatura-conteudo">
+          <!-- Itens da fatura via JS -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="app.fecharModal('modal-fatura')">Fechar</button>
+      </div>
     </div>
   </div>
 

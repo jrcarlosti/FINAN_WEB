@@ -7,19 +7,25 @@ const app = {
     contas: [],
     movimentacoes: [],
     categorias: [],
+    investimentos: []
   },
   chartCategorias: null,
   chartEvolucao: null,
   chartContas: null,
+  chartCartoesCredito: null,
+  chartContasView: null,
   chartFluxoResumo: null,
-  chartTotalConsolidado: null,
+  chartReservasView: null,
+  chartInvestimentosView: null,
   ordemDataAsc: true,
   ocultarValoresGraficos: false,
+  compactCharts: true,
 
   init() {
     Chart.register(ChartDataLabels);
     lucide.createIcons();
     this.bindEvents();
+    this.applyChartCompactMode();
     
     // Auth Check
     if (sessionStorage.getItem('fin_logged_in') === 'true') {
@@ -124,8 +130,19 @@ const app = {
       if (this.chartEvolucao) this.chartEvolucao.update();
       if (this.chartContas) this.chartContas.update();
       if (this.chartFluxoResumo) this.chartFluxoResumo.update();
-      if (this.chartTotalConsolidado) this.chartTotalConsolidado.update();
+      if (this.chartCartoesCredito) this.chartCartoesCredito.update();
     });
+
+    // Filtrar categorias quando o Tipo for alterado nos modais de lançamento/edição
+    const lancTipo = document.getElementById('lanc-tipo');
+    if (lancTipo) lancTipo.addEventListener('change', (e) => { this.atualizarCategoriasParaSelect('lanc-categoria', e.target.value); });
+
+    const editTipo = document.getElementById('edit-tipo');
+    if (editTipo) editTipo.addEventListener('change', (e) => { this.atualizarCategoriasParaSelect('edit-categoria', e.target.value); });
+
+    // Re-render cartoes when filtro de mês muda
+    const filtroFatura = document.getElementById('filtro-fatura-mes');
+    if (filtroFatura) filtroFatura.addEventListener('change', () => this.renderCartoes());
   },
 
   navegar(route) {
@@ -144,6 +161,7 @@ const app = {
       'fluxo': 'Fluxo de Caixa',
       'cartoes': 'Cartões & Faturas',
       'reservas': 'Caixas Reservas',
+      'investimentos': 'Ações / Investimentos',
       'categorias': 'Categorias',
       'configuracoes': 'Configurações'
     };
@@ -197,6 +215,9 @@ const app = {
     if (id === 'modal-lancamento') {
       const field = document.getElementById('lanc-data');
       if (field) field.value = today;
+      // Atualiza as categorias de acordo com o Tipo selecionado ao abrir o modal
+      const tipoVal = document.getElementById('lanc-tipo')?.value || 'SAIDA';
+      this.atualizarCategoriasParaSelect('lanc-categoria', tipoVal);
     } else if (id === 'modal-transferencia') {
       const fieldOrigem = document.getElementById('transf-data-origem');
       const fieldDest = document.getElementById('transf-data-destino');
@@ -301,14 +322,16 @@ const app = {
       this.request('listar_movimentacoes'),
       this.request('listar_categorias'),
       this.request('listar_cartoes'),
-      this.request('listar_reservas')
-    ]).then(([resDash, resContas, resMov, resCat, resCar, resRes]) => {
+      this.request('listar_reservas'),
+      this.request('listar_investimentos')
+    ]).then(([resDash, resContas, resMov, resCat, resCar, resRes, resInv]) => {
       this.data.dashboard = resDash.dados;
       this.data.contas = resContas.dados;
       this.data.movimentacoes = resMov.dados;
       this.data.categorias = resCat.dados;
       this.data.cartoes = resCar.dados;
       this.data.reservas = resRes.dados;
+      this.data.investimentos = resInv.dados || [];
       
       this.preencherSelects();
       this.renderDashboard();
@@ -316,6 +339,7 @@ const app = {
       this.renderFluxo();
       this.renderCategorias();
       this.renderReservas();
+      this.renderInvestimentos();
       this.renderCartoes();
       
       this.esconderSplash();
@@ -478,6 +502,13 @@ const app = {
       });
       const dataRec = sortedKeys.map(k => mesesMap[k].Receitas);
       const dataDes = sortedKeys.map(k => mesesMap[k].Despesas);
+      const dataSaldo = sortedKeys.map(k => mesesMap[k].Receitas - mesesMap[k].Despesas);
+      const totalSaldoEvolucao = dataSaldo.reduce((acc, v) => acc + v, 0);
+
+      const saldoHeaderEl = document.getElementById('evolucao-saldo-total');
+      if (saldoHeaderEl) {
+        saldoHeaderEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(totalSaldoEvolucao);
+      }
 
       this.chartEvolucao = new Chart(ctxEvolucao, {
         type: 'bar',
@@ -485,7 +516,8 @@ const app = {
           labels: labelsEvo,
           datasets: [
             { label: 'Receitas', data: dataRec, backgroundColor: '#10b981', borderRadius: 4 },
-            { label: 'Despesas', data: dataDes, backgroundColor: '#ef4444', borderRadius: 4 }
+            { label: 'Despesas', data: dataDes, backgroundColor: '#ef4444', borderRadius: 4 },
+            { label: 'Saldo', data: dataSaldo, backgroundColor: '#3b82f6', borderRadius: 4 }
           ]
         },
         options: {
@@ -570,6 +602,38 @@ const app = {
       `;
     });
     lucide.createIcons();
+
+    // Gráfico: Fluxo de Caixa por Conta (inclui Total)
+    const ctxContasView = document.getElementById('chart-contas-view');
+    if (ctxContasView) {
+      if (this.chartContasView) this.chartContasView.destroy();
+
+      const contasSorted = [...this.data.contas].sort((a, b) => Number(b.Saldo_Atual) - Number(a.Saldo_Atual));
+      const totalGeral = contasSorted.reduce((acc, c) => acc + Number(c.Saldo_Atual), 0);
+
+      const labels = ['Total', ...contasSorted.map(c => c.Nome)];
+      const data = [totalGeral, ...contasSorted.map(c => Number(c.Saldo_Atual))];
+      const bgColors = ['#3b82f6', ...contasSorted.map(c => c.Cor || (Number(c.Saldo_Atual) < 0 ? '#ef4444' : '#3b82f6'))];
+
+      this.chartContasView = new Chart(ctxContasView, {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Saldo', data, backgroundColor: bgColors, borderRadius: 6 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          layout: { padding: { top: 40 } },
+          plugins: {
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end', align: 'top',
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              clip: false, font: { size: 13, weight: 'bold' },
+              color: '#e2e8f0', textStrokeColor: 'rgba(0,0,0,0.7)', textStrokeWidth: 3
+            }
+          },
+          scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } } }
+        }
+      });
+    }
   },
 
   renderFluxo() {
@@ -589,7 +653,14 @@ const app = {
     
     if(fTipo !== 'todos') movs = movs.filter(m => m.Tipo === fTipo);
     if(fConta !== 'todas') movs = movs.filter(m => m.ID_Conta_Origem === fConta || m.ID_Conta_Destino === fConta || m.ID_Reserva === fConta);
-    if(fStatus !== 'todos') movs = movs.filter(m => String(m.Status).toUpperCase() === fStatus);
+    if(fStatus !== 'todos') {
+      movs = movs.filter(m => {
+        const status = String(m.Status || '').toUpperCase();
+        const isVencido = status === 'VENCIDO' || (status === 'PENDENTE' && new Date(m.Data).getTime() < new Date().setHours(0,0,0,0));
+        if (fStatus === 'VENCIDO') return isVencido;
+        return status === fStatus;
+      });
+    }
     if(fCat !== 'todas') movs = movs.filter(m => m.Categoria === fCat);
     if(fCartao !== 'todos') movs = movs.filter(m => String(m.ID_Cartao) === fCartao);
     if(fDesc) movs = movs.filter(m => String(m.Descricao).toLowerCase().includes(fDesc));
@@ -617,22 +688,32 @@ const app = {
     movs.forEach(m => {
       const conta = this.data.contas.find(c => c.ID === m.ID_Conta_Origem) || this.data.reservas.find(r => r.ID === m.ID_Reserva) || { Nome: '-' };
       const cartao = this.data.cartoes.find(c => c.ID === m.ID_Cartao) || { Nome: '-' };
+      const categoria = this.data.categorias.find(c => c.Nome === m.Categoria) || { Tipo: '', Cor: '#64748b', Icone: 'tag' };
       const valColor = m.Tipo === 'SAIDA' ? 'var(--danger)' : 'var(--success)';
       const sinal = m.Tipo === 'SAIDA' ? '-' : '+';
-      
-      let badgeStatus = m.Status === 'PENDENTE' ? 'warning' : 'success';
+      const status = String(m.Status || '').trim().toUpperCase();
+      const isVencido = status === 'VENCIDO' || (status === 'PENDENTE' && new Date(m.Data).getTime() < new Date().setHours(0,0,0,0));
+      const rowBg = status === 'PAGO'
+        ? 'background: rgba(16, 185, 129, 0.08);'
+        : isVencido
+          ? 'background: rgba(249, 115, 22, 0.12);'
+          : status === 'PENDENTE'
+            ? 'background: rgba(239, 68, 68, 0.08);'
+            : '';
+      const badgeClass = isVencido ? 'vencido' : status === 'PENDENTE' ? 'pendente' : status === 'PAGO' ? 'success' : 'info';
+      const statusLabel = isVencido && status === 'PENDENTE' ? 'VENCIDO' : status || '-';
 
       container.innerHTML += `
-        <tr>
+        <tr style="${rowBg}">
           <td>${this.formatarData(m.Data)}</td>
           <td><strong>${m.Descricao}</strong></td>
-          <td>${m.Categoria}</td>
+          <td><span class="category-tag" style="background:${categoria.Cor};"><i data-lucide="${categoria.Icone || 'tag'}" style="width:14px; height:14px;"></i></span>${m.Categoria}</td>
           ${temKM ? `<td>${m.KM ? `<span style="font-size:0.8rem;background:var(--bg-app);padding:2px 6px;border-radius:4px;">🗘️ ${Number(m.KM).toLocaleString('pt-BR')} km</span>` : '-'}</td>` : ''}
           <td>${cartao.Nome !== '-' ? '<i data-lucide="credit-card" style="width:14px; margin-right:5px; vertical-align:bottom;"></i>'+cartao.Nome : '-'}</td>
           <td>${m.Parcela_Info || '-'}</td>
           <td>${conta.Nome}</td>
           <td style="color: ${valColor}; font-weight: 600;">${sinal} ${this.formatarMoeda(m.Valor)}</td>
-          <td><span class="badge ${badgeStatus}">${m.Status}</span></td>
+          <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
           <td>
             <button class="icon-btn" onclick="app.editarLancamento('${m.ID}')" title="Editar"><i data-lucide="pencil"></i></button>
             <button class="icon-btn" onclick="app.excluirMovimentacao('${m.ID}')" title="Excluir"><i data-lucide="trash-2"></i></button>
@@ -647,44 +728,63 @@ const app = {
   },
 
   renderGraficosFluxo(movs) {
-    // 0. Gráfico TOTAL (Soma das Contas)
-    const ctxTotal = document.getElementById('chart-total-consolidado');
-    if (ctxTotal) {
-      if (this.chartTotalConsolidado) this.chartTotalConsolidado.destroy();
-      
-      const totalGeral = this.data.contas.reduce((acc, c) => acc + Number(c.Saldo_Atual), 0);
-      
-      this.chartTotalConsolidado = new Chart(ctxTotal, {
+    // 0. Gráfico Cartões de Crédito
+    const ctxCartoes = document.getElementById('chart-cartoes-credito');
+    const totalEl = document.getElementById('fluxo-cartoes-total');
+    const movsPorCartao = movs.filter(m => m.ID_Cartao && m.Tipo === 'SAIDA');
+    const totalsByCartao = movsPorCartao.reduce((acc, m) => {
+      const id = String(m.ID_Cartao);
+      acc[id] = (acc[id] || 0) + Number(m.Valor);
+      return acc;
+    }, {});
+
+    const cartoesOrdenados = this.data.cartoes
+      .map(c => ({ ...c, total: totalsByCartao[String(c.ID)] || 0 }))
+      .filter(c => c.total !== 0)
+      .sort((a, b) => Number(b.total) - Number(a.total));
+
+    const totalCartoes = cartoesOrdenados.reduce((acc, c) => acc + c.total, 0);
+    if (totalEl) {
+      totalEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(totalCartoes);
+    }
+
+    if (ctxCartoes) {
+      if (this.chartCartoesCredito) this.chartCartoesCredito.destroy();
+
+      const labels = cartoesOrdenados.map(c => c.Nome);
+      const data = cartoesOrdenados.map(c => c.total);
+      const bgColors = cartoesOrdenados.map(c => c.Cor || '#3b82f6');
+
+      this.chartCartoesCredito = new Chart(ctxCartoes, {
         type: 'bar',
         data: {
-          labels: ['Saldo Total de Contas'],
+          labels,
           datasets: [{
-            label: 'Total',
-            data: [totalGeral],
-            backgroundColor: ['#3b82f6'],
-            borderRadius: 8,
-            barThickness: 60
+            label: 'Cartões de Crédito',
+            data,
+            backgroundColor: bgColors,
+            borderRadius: 6
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          indexAxis: 'y',
-          layout: { padding: { right: 50 } },
-          plugins: { 
+          layout: { padding: { top: 40, right: 20 } },
+          plugins: {
             legend: { display: false },
             datalabels: {
               anchor: 'end',
-              align: 'right',
+              align: 'top',
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              clip: false,
+              font: { size: 12, weight: 'bold' },
               color: '#e2e8f0',
-              font: { weight: 'bold', size: 14 },
               textStrokeColor: 'rgba(0,0,0,0.7)',
               textStrokeWidth: 3
             }
           },
           scales: {
-            x: { display: false },
-            y: { ticks: { color: '#94a3b8', font: { size: 14, weight: '600' } }, grid: { display: false } }
+            x: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 12 } }, grid: { color: 'rgba(148,163,184,0.15)' } }
           }
         }
       });
@@ -713,13 +813,15 @@ const app = {
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          layout: { padding: { top: 30 } },
+          layout: { padding: { top: 40 } },
           plugins: { 
             legend: { display: false },
             datalabels: {
               anchor: 'end',
               align: 'top',
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              clip: false,
+              font: { size: 12 },
               color: '#e2e8f0',
               font: { weight: 'bold', size: 11 },
               textStrokeColor: 'rgba(0,0,0,0.7)',
@@ -742,7 +844,15 @@ const app = {
       let totalEntradas = 0;
       let totalSaidas = 0;
       
+      const isTransferencia = mov => {
+        const categoria = String(mov.Categoria || '').trim().toLowerCase();
+        const descricao = String(mov.Descricao || '').trim().toLowerCase();
+        return categoria.includes('transfer') || categoria === 'transfer�ncia' || categoria === 'transferencia' || descricao.includes('transfer') || descricao.includes('aporte') || descricao.includes('resgate') || (mov.ID_Conta_Origem && mov.ID_Conta_Destino);
+      };
+
+
       movs.forEach(m => {
+        if (isTransferencia(m)) return;
         if (m.Tipo === 'ENTRADA') totalEntradas += Number(m.Valor);
         else if (m.Tipo === 'SAIDA') totalSaidas += Number(m.Valor);
       });
@@ -838,12 +948,152 @@ const app = {
       `;
     });
     lucide.createIcons();
+
+    // Gráfico: Reservas — inclui total e ordena do maior para o menor (esquerda -> direita)
+    const ctxRes = document.getElementById('chart-reservas-view');
+    if (ctxRes) {
+      if (this.chartReservasView) this.chartReservasView.destroy();
+
+      const reservasSorted = [...this.data.reservas].sort((a, b) => Number(b.Valor_Atual) - Number(a.Valor_Atual));
+      const totalReservas = reservasSorted.reduce((acc, r) => acc + Number(r.Valor_Atual), 0);
+
+      const labels = ['Total', ...reservasSorted.map(r => r.Nome)];
+      const data = [totalReservas, ...reservasSorted.map(r => Number(r.Valor_Atual))];
+      const bgColors = ['#3b82f6', ...reservasSorted.map(r => r.Cor || '#10b981')];
+
+      this.chartReservasView = new Chart(ctxRes, {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Valor', data, backgroundColor: bgColors, borderRadius: 6 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          layout: { padding: { top: 40 } },
+          plugins: {
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end', align: 'top',
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              clip: false, font: { size: 13, weight: 'bold' }, color: '#e2e8f0', textStrokeColor: 'rgba(0,0,0,0.7)', textStrokeWidth: 3
+            }
+          },
+          scales: { x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }, y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } } }
+        }
+      });
+    }
+  },
+
+  renderInvestimentos() {
+    const container = document.getElementById('lista-investimentos');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!this.data.investimentos || this.data.investimentos.length === 0) {
+      if (this.chartInvestimentosView) {
+        this.chartInvestimentosView.destroy();
+        this.chartInvestimentosView = null;
+      }
+      const ctx = document.getElementById('chart-investimentos-view');
+      if (ctx) {
+        this.chartInvestimentosView = new Chart(ctx, {
+          type: 'bar',
+          data: { labels: ['Sem dados'], datasets: [{ label: 'Investimentos', data: [0], backgroundColor: ['#64748b'], borderRadius: 6 }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false }, datalabels: { display: false } },
+            scales: { x: { display: false }, y: { display: false } }
+          }
+        });
+      }
+
+      container.innerHTML = `
+        <div class="card" style="border-top: 4px solid var(--primary-color);">
+          <div class="card-header">
+            <span class="card-title">Nenhum investimento cadastrado</span>
+          </div>
+          <div class="card-balance" style="font-size: 0.95rem; color: var(--text-secondary);">
+            Cadastre seus investimentos para ver aqui.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const labels = this.data.investimentos.map(i => i.Nome || 'Investimento');
+    const valores = this.data.investimentos.map(i => Number(i.Valor_Atual || 0));
+    const totalInvestimentos = valores.reduce((acc, value) => acc + value, 0);
+    const cores = this.data.investimentos.map(i => i.Cor || '#3b82f6');
+
+    if (this.chartInvestimentosView) this.chartInvestimentosView.destroy();
+    const ctx = document.getElementById('chart-investimentos-view');
+    if (ctx) {
+      this.chartInvestimentosView = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: ['Total', ...labels],
+          datasets: [{ label: 'Valor', data: [totalInvestimentos, ...valores], backgroundColor: ['#2563eb', ...cores], borderRadius: 6 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: { padding: { top: 40 } },
+          plugins: {
+            legend: { display: false },
+            datalabels: {
+              anchor: 'end',
+              align: 'top',
+              formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
+              clip: false,
+              font: { size: 13, weight: 'bold' },
+              color: '#e2e8f0',
+              textStrokeColor: 'rgba(0,0,0,0.7)',
+              textStrokeWidth: 3
+            }
+          },
+          scales: {
+            x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
+            y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } }
+          }
+        }
+      });
+    }
+
+    this.data.investimentos.forEach(i => {
+      const valorAtual = Number(i.Valor_Atual || 0);
+      const metaValor = Number(i.Meta_Valor || 0);
+      const p = metaValor ? (valorAtual / metaValor) * 100 : 0;
+      const barWidth = Math.max(0, Math.min(p, 100));
+      const barColor = valorAtual < 0 ? 'var(--danger)' : i.Cor;
+      container.innerHTML += `
+        <div class="card" style="border-top: 4px solid ${i.Cor}">
+          <div class="card-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <i data-lucide="${i.Icone || 'trending-up'}" style="width:18px;height:18px;margin-right:5px;vertical-align:bottom;"></i>
+              <span class="card-title">${i.Nome}</span>
+            </div>
+            <div style="display:flex; gap:5px;">
+              <button class="icon-btn" onclick="app.abrirAporte('${i.ID}')" title="Aporte/Resgate"><i data-lucide="arrow-right-left"></i></button>
+              <button class="icon-btn" onclick="app.editarInvestimento('${i.ID}')" title="Editar Investimento"><i data-lucide="pencil"></i></button>
+              <button class="icon-btn" onclick="app.excluirInvestimento('${i.ID}')" title="Excluir Investimento"><i data-lucide="trash-2"></i></button>
+            </div>
+          </div>
+          <div class="card-balance"><span class="valor-monetario">${this.formatarMoeda(valorAtual)}</span></div>
+          <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Meta: <span class="valor-monetario">${this.formatarMoeda(metaValor)}</span></div>
+          <div style="width:100%; height:8px; background:var(--bg-app); border-radius:4px; overflow:hidden;">
+            <div style="width:${barWidth}%; height:100%; background:${barColor}; transition:width 0.3s;"></div>
+          </div>
+          <div style="text-align:right; font-size:0.75rem; margin-top:5px;">${p.toFixed(1)}% alcançado</div>
+        </div>
+      `;
+    });
+    lucide.createIcons();
   },
 
   renderCartoes() {
     const container = document.getElementById('lista-cartoes');
     if (!container) return;
     container.innerHTML = '';
+    const selectedMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0,7);
+
     this.data.cartoes.forEach(c => {
       container.innerHTML += `
         <div class="card" style="border-top: 4px solid ${c.Cor}">
@@ -859,10 +1109,25 @@ const app = {
           </div>
           <div style="font-size:0.9rem; margin-bottom:5px;">Limite: <strong><span class="valor-monetario">${this.formatarMoeda(c.Limite)}</span></strong></div>
           <div style="font-size:0.8rem; color:var(--text-secondary);">Fecha dia ${c.Dia_Fechamento} | Vence dia ${c.Dia_Vencimento}</div>
+          <div style="margin-top:8px; font-size:0.95rem;">
+            <span style="color:var(--text-secondary); margin-right:8px;">Fatura (${selectedMonth.replace('-', '/')})</span>
+            <strong style="cursor:pointer;" onclick="app.abrirFaturaCartao('${c.ID}')"><span class="valor-monetario" id="cartao-fatura-${c.ID}">...</span></strong>
+          </div>
         </div>
       `;
     });
     lucide.createIcons();
+
+    // Preencher os valores de fatura por cartão (assíncrono mas rápido)
+    this.data.cartoes.forEach(c => {
+      const total = this.data.movimentacoes
+        .filter(m => String(m.ID_Cartao) === String(c.ID))
+        .filter(m => m.Tipo === 'SAIDA')
+        .filter(m => String(m.Data).substring(0,7) === selectedMonth)
+        .reduce((acc, m) => acc + Number(m.Valor), 0);
+      const el = document.getElementById(`cartao-fatura-${c.ID}`);
+      if (el) el.innerText = this.formatarMoeda(total);
+    });
   },
 
   preencherSelects() {
@@ -877,7 +1142,8 @@ const app = {
     if (sConta) sConta.innerHTML = htmlContas;
     
     const sCat = document.getElementById('lanc-categoria');
-    if (sCat) sCat.innerHTML = this.data.categorias.map(c => `<option value="${c.Nome}">${c.Nome}</option>`).join('');
+    const allCatHtml = this.data.categorias.map(c => `<option value="${c.Nome}">${c.Nome}</option>`).join('');
+    if (sCat) sCat.innerHTML = allCatHtml;
 
     const htmlCartoes = '<option value="">Nenhum</option>' + this.data.cartoes.map(c => `<option value="${c.ID}">${c.Nome}</option>`).join('');
     const sCartao1 = document.getElementById('lanc-cartao');
@@ -903,12 +1169,37 @@ const app = {
       if (el) el.innerHTML = sCat.innerHTML;
     });
 
+    // Garantir que os selects de categoria do formulário de lançamento e edição
+    // mostrem apenas categorias do tipo correspondente (Entrada -> RECEITA, Saída -> DESPESA)
+    const lancTipoVal = document.getElementById('lanc-tipo')?.value || 'SAIDA';
+    const editTipoVal = document.getElementById('edit-tipo')?.value || 'SAIDA';
+    this.atualizarCategoriasParaSelect('lanc-categoria', lancTipoVal);
+    this.atualizarCategoriasParaSelect('edit-categoria', editTipoVal);
+
     // Filtros
     const fConta = document.getElementById('filtro-conta');
     if (fConta) fConta.innerHTML = '<option value="todas">Todas as Contas</option>' + htmlContas;
     
     const fCat = document.getElementById('filtro-categoria');
     if (fCat) fCat.innerHTML = '<option value="todas">Todas Categorias</option>' + sCat.innerHTML;
+
+    // Popula filtro de mês das faturas (próximos 12 meses)
+    const selMes = document.getElementById('filtro-fatura-mes');
+    if (selMes) {
+      const now = new Date();
+      const options = [];
+      for (let i = 0; i < 12; i++) {
+        const dt = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const val = `${y}-${m}`;
+        const label = `${m}/${y}`;
+        options.push(`<option value="${val}">${label}</option>`);
+      }
+      selMes.innerHTML = options.join('');
+      // Default para o mês atual
+      selMes.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
 
     // Datas padrao do filtro (Primeiro e ultimo dia do mes)
     const d = new Date();
@@ -928,6 +1219,17 @@ const app = {
       dashDataIni.value = dia1;
       dashDataFim.value = diaU;
     }
+  },
+
+  atualizarCategoriasParaSelect(selectId, tipoLanc) {
+    const mapTipo = tipoLanc === 'ENTRADA' ? 'RECEITA' : 'DESPESA';
+    const el = document.getElementById(selectId);
+    if (!el) return;
+    const opts = this.data.categorias
+      .filter(c => String(c.Tipo).toUpperCase() === mapTipo)
+      .map(c => `<option value="${c.Nome}">${c.Nome}</option>`)
+      .join('');
+    el.innerHTML = opts || '<option value="">Nenhuma categoria disponível</option>';
   },
 
   // ── AÇÕES ──
@@ -1061,6 +1363,8 @@ const app = {
     document.getElementById('edit-descricao').value = mov.Descricao;
     document.getElementById('edit-valor').value = mov.Valor;
     document.getElementById('edit-conta').value = mov.ID_Conta_Origem || mov.ID_Reserva || '';
+    // Repopula o select de categoria conforme o Tipo antes de selecionar o valor
+    this.atualizarCategoriasParaSelect('edit-categoria', mov.Tipo);
     document.getElementById('edit-categoria').value = mov.Categoria;
     document.getElementById('edit-status').value = String(mov.Status).toUpperCase();
     document.getElementById('edit-cartao').value = mov.ID_Cartao || '';
@@ -1116,6 +1420,8 @@ const app = {
     const valor = document.getElementById('transf-valor').value;
     const cat = document.getElementById('transf-categoria').value;
 
+    const origem = document.getElementById('transf-conta-origem').value;
+    const destino = document.getElementById('transf-conta-destino').value;
     const payloadSaida = {
       acao: 'registrar_movimentacao',
       dados: {
@@ -1123,8 +1429,9 @@ const app = {
         Data: document.getElementById('transf-data-origem').value,
         Descricao: desc,
         Valor: valor,
-        ID_Conta_Origem: document.getElementById('transf-conta-origem').value,
-        Categoria: cat,
+        ID_Conta_Origem: origem,
+        ID_Conta_Destino: destino,
+        Categoria: 'Transferência',
         Status: document.getElementById('transf-status-origem').value
       }
     };
@@ -1136,8 +1443,9 @@ const app = {
         Data: document.getElementById('transf-data-destino').value,
         Descricao: desc,
         Valor: valor,
-        ID_Conta_Origem: document.getElementById('transf-conta-destino').value,
-        Categoria: cat,
+        ID_Conta_Origem: destino,
+        ID_Conta_Destino: origem,
+        Categoria: 'Transferência',
         Status: document.getElementById('transf-status-destino').value
       }
     };
@@ -1281,6 +1589,68 @@ const app = {
     }).catch(err => this.mostrarToast(err, 'error'));
   },
 
+  salvarInvestimento() {
+    const btn = document.querySelector('#form-investimento button[type="submit"]');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerText = 'Salvando...';
+    }
+
+    const investId = document.getElementById('investimento-id')?.value || '';
+    const isEdicao = investId.trim() !== '';
+    const payload = {
+      acao: isEdicao ? 'atualizar_investimento' : 'criar_investimento',
+      dados: {
+        Nome: document.getElementById('investimento-nome').value,
+        Valor_Atual: document.getElementById('investimento-valor-atual').value,
+        Meta_Valor: document.getElementById('investimento-meta').value,
+        Cor: document.getElementById('investimento-cor').value,
+        Icone: document.getElementById('investimento-icone').value,
+        Status: 'ATIVO'
+      }
+    };
+    if (isEdicao) payload.id = investId;
+
+    this.requestEscrita(payload).then(res => {
+      this.mostrarToast(res.mensagem || 'Investimento salvo com sucesso!', 'success');
+      this.fecharModal('modal-investimento');
+      document.getElementById('form-investimento').reset();
+      document.getElementById('investimento-id').value = '';
+      const submitBtn = document.querySelector('#form-investimento button[type="submit"]');
+      if (submitBtn) submitBtn.innerText = 'Salvar Investimento';
+      document.getElementById('investimento-nome').blur();
+      this.carregarDadosIniciais();
+    }).catch(err => {
+      this.mostrarToast(err, 'error');
+    }).finally(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = 'Salvar Investimento';
+      }
+    });
+  },
+
+  editarInvestimento(id) {
+    const inv = this.data.investimentos.find(x => x.ID === id);
+    if (!inv) return;
+    document.getElementById('investimento-id').value = inv.ID;
+    document.getElementById('investimento-nome').value = inv.Nome || '';
+    document.getElementById('investimento-valor-atual').value = inv.Valor_Atual || 0;
+    document.getElementById('investimento-meta').value = inv.Meta_Valor || 0;
+    document.getElementById('investimento-cor').value = inv.Cor || '#0284c7';
+    document.getElementById('investimento-icone').value = inv.Icone || 'trending-up';
+    document.querySelector('#form-investimento button[type="submit"]').innerText = 'Atualizar Investimento';
+    this.abrirModal('modal-investimento');
+  },
+
+  excluirInvestimento(id) {
+    if (!confirm('Excluir este investimento permanentemente?')) return;
+    this.requestEscrita({ acao: 'excluir_investimento', id }).then(res => {
+      this.mostrarToast(res.mensagem, 'success');
+      this.carregarDadosIniciais();
+    }).catch(err => this.mostrarToast(err, 'error'));
+  },
+
   editarReserva(id) {
     const r = this.data.reservas.find(x => x.ID === id);
     if (!r) return;
@@ -1304,25 +1674,31 @@ const app = {
   },
 
   abrirAporte(id) {
-    document.getElementById('aporte-reserva-id').value = id;
+    const alvoTipo = id && (String(id).startsWith('INV_') || String(id).startsWith('INV')) ? 'Investimento' : 'Reserva';
+    const titulo = `Aporte / Resgate — ${alvoTipo}`;
+    document.getElementById('titulo-modal-aporte').innerText = titulo;
+    document.getElementById('aporte-alvo-id').value = id;
     document.getElementById('aporte-data').value = new Date().toISOString().substring(0, 10);
     this.abrirModal('modal-aporte');
   },
 
   salvarAporte() {
-    const reservaId = document.getElementById('aporte-reserva-id').value;
+    const alvoId = document.getElementById('aporte-alvo-id').value;
     const tipo = document.getElementById('aporte-tipo').value;
+    const alvoTipo = alvoId && (String(alvoId).startsWith('INV_') || String(alvoId).startsWith('INV')) ? 'Investimento' : 'Reserva';
     const payload = {
       acao: 'registrar_movimentacao',
       dados: {
         Tipo: tipo,
         Data: document.getElementById('aporte-data').value,
-        Descricao: tipo === 'SAIDA' ? 'Aporte em Reserva' : 'Resgate de Reserva',
+        Descricao: tipo === 'SAIDA'
+          ? `Aporte em ${alvoTipo}`
+          : `Resgate de ${alvoTipo}`,
         Valor: document.getElementById('aporte-valor').value,
         ID_Conta_Origem: document.getElementById('aporte-conta').value,
         Categoria: 'Transferência',
         Status: 'PAGO',
-        ID_Reserva: reservaId
+        ID_Reserva: alvoId
       }
     };
     this.requestEscrita(payload).then(res => {
@@ -1372,6 +1748,46 @@ const app = {
     document.getElementById('titulo-modal-limite').innerText = `Ajustar Limite — ${cartao.Nome}`;
     document.getElementById('limite-valor').value = '';
     this.abrirModal('modal-limite-cartao');
+  },
+
+  abrirFaturaCartao(cardId) {
+    const selMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0,7);
+    const cartao = this.data.cartoes.find(c => String(c.ID) === String(cardId));
+    if (!cartao) return;
+    const movs = this.data.movimentacoes
+      .filter(m => String(m.ID_Cartao) === String(cardId))
+      .filter(m => String(m.Data).substring(0,7) === selMonth)
+      .sort((a,b) => new Date(a.Data).getTime() - new Date(b.Data).getTime());
+
+    const titulo = `${cartao.Nome} — Fatura ${selMonth.replace('-', '/')}`;
+    document.getElementById('modal-fatura-titulo').innerText = titulo;
+
+    const conteudo = document.getElementById('modal-fatura-conteudo');
+    if (!conteudo) return;
+    if (movs.length === 0) {
+      conteudo.innerHTML = '<div style="padding:8px; color:var(--text-secondary)">Nenhuma transação encontrada para este mês.</div>';
+    } else {
+      const rows = movs.map(m => `
+        <tr>
+          <td style="padding:8px 12px">${this.formatarData(m.Data)}</td>
+          <td style="padding:8px 12px">${m.Descricao}</td>
+          <td style="padding:8px 12px; text-align:right">${this.formatarMoeda(m.Valor)}</td>
+        </tr>
+      `).join('');
+      const total = movs.reduce((acc, m) => acc + Number(m.Valor), 0);
+      conteudo.innerHTML = `
+        <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-weight:600">${cartao.Nome}</div>
+          <div style="font-size:1rem; font-weight:700">Total: ${this.formatarMoeda(total)}</div>
+        </div>
+        <table style="width:100%; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left; padding:8px 12px; color:var(--text-secondary)">Data</th><th style="text-align:left; padding:8px 12px; color:var(--text-secondary)">Descrição</th><th style="text-align:right; padding:8px 12px; color:var(--text-secondary)">Valor</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    this.abrirModal('modal-fatura');
   },
 
   salvarAjusteLimite() {
@@ -1520,10 +1936,32 @@ const app = {
       })
       .catch(err => {
         const errorMsg = String(err);
-        if (errorMsg.includes('ScriptApp.getProjectTriggers')) {
-          this.mostrarToast('Autorização pendente! Execute a função "autorizar" no seu Apps Script para permitir envios.', 'error');
+        if (errorMsg.includes('ScriptApp.getProjectTriggers') || errorMsg.includes('getProjectTriggers')) {
+          this.mostrarToast('Autorização pendente! Execute a função "autorizar" no Apps Script para permitir envios.', 'error');
         } else {
           this.mostrarToast('Erro ao configurar alerta: ' + errorMsg, 'error');
+        }
+      });
+  },
+
+  testarEmailAlerta() {
+    const email = document.getElementById('input-email-alerta')?.value.trim();
+    if (!email || !email.includes('@')) {
+      this.mostrarToast('Informe um e-mail válido antes de testar.', 'warning');
+      return;
+    }
+    this.mostrarToast('Enviando e-mail de teste... aguarde.', 'info');
+
+    this.requestEscrita({ acao: 'testar_alerta_email', email })
+      .then(res => {
+        this.mostrarToast(res.mensagem || 'E-mail de teste enviado com sucesso!', 'success');
+      })
+      .catch(err => {
+        const errorMsg = String(err);
+        if (errorMsg.includes('ScriptApp.getProjectTriggers') || errorMsg.includes('getProjectTriggers')) {
+          this.mostrarToast('Autorização pendente! Execute a função "autorizar" no Apps Script para permitir envios.', 'error');
+        } else {
+          this.mostrarToast('Erro ao enviar e-mail de teste: ' + errorMsg, 'error');
         }
       });
   },
@@ -1539,6 +1977,21 @@ const app = {
         this.mostrarToast(res.mensagem || 'Alerta de e-mail desativado!', 'success');
       })
       .catch(err => this.mostrarToast('Erro ao remover alerta: ' + err, 'error'));
+  },
+
+  applyChartCompactMode() {
+    document.body.classList.toggle('chart-compact', this.compactCharts);
+    const btn = document.getElementById('btn-toggle-chart-size');
+    if (btn) {
+      btn.classList.toggle('btn-small', this.compactCharts);
+      btn.innerHTML = `<i data-lucide="${this.compactCharts ? 'maximize-2' : 'minimize-2'}"></i> ${this.compactCharts ? 'Normalizar Gráficos' : 'Compactar Gráficos'}`;
+      lucide.createIcons();
+    }
+  },
+
+  toggleChartSize() {
+    this.compactCharts = !this.compactCharts;
+    this.applyChartCompactMode();
   },
 
   // ── FUNÇÕES AUXILIARES DE UX ──
@@ -1574,3 +2027,4 @@ const app = {
 };
 
 window.onload = () => app.init();
+

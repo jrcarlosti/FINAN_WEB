@@ -214,15 +214,26 @@ canvas {
 }
 
 /* CHARTS ROW */
-.charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
 .chart-container {
+  display: flex;
+  flex-direction: column;
   background: var(--bg-card); padding: 20px; border-radius: var(--radius-lg);
   border: 1px solid var(--border-color); box-shadow: var(--shadow-sm);
 }
 .chart-container canvas {
-  max-height: 250px;
+  width: 100% !important;
+  min-height: 260px;
+  max-height: 420px;
 }
-.chart-container h3 { font-size: 1.1rem; margin-bottom: 20px; font-weight: 600; }
+.chart-container h3 { font-size: 1.1rem; margin-bottom: 12px; font-weight: 600; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.chart-total { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+.category-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 90px; padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; color: #fff; margin-right: 10px; text-transform: uppercase; letter-spacing: 0.02em; }
+.table td .category-tag { margin-bottom: 2px; }
+.chart-compact canvas { max-height: 280px !important; }
+.chart-compact .chart-container { padding: 16px; }
+.btn-small { padding: 8px 12px; font-size: 0.85rem; }
 .placeholder-box { height: 250px; background: var(--bg-app); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
 
 /* TOOLBAR & FILTERS */
@@ -241,9 +252,11 @@ canvas {
 
 /* BADGES */
 .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-.badge.success { background: rgba(16, 185, 129, 0.1); color: var(--success); }
-.badge.danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
+.badge.success { background: rgba(16, 185, 129, 0.12); color: #15803d; }
+.badge.pendente { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
+.badge.vencido { background: rgba(249, 115, 22, 0.18); color: #c2410c; }
 .badge.warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
+.badge.danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
 .badge.info { background: rgba(59, 130, 246, 0.1); color: var(--primary-color); }
 
 /* GRID CARDS (CONTAS) */
@@ -297,4 +310,5 @@ canvas {
   .charts-row { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .form-group.span-2 { grid-column: span 1; }
+  .chart-container canvas { min-height: 320px; }
 }

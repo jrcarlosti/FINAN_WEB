@@ -24,6 +24,7 @@ const HEADERS = {
   CARTOES:       ['ID','Nome','Limite','Dia_Fechamento','Dia_Vencimento','ID_Conta_Pagamento','Cor','Ativo'],
   FATURAS:       ['ID','ID_Cartao','Mes_Ano','Valor_Total','Status','Data_Vencimento'],
   RESERVAS:      ['ID','Nome','Meta_Valor','Valor_Atual','Cor','Icone','Status'],
+  INVESTIMENTOS: ['ID','Nome','Meta_Valor','Valor_Atual','Cor','Icone','Status'],
   CATEGORIAS:    ['ID','Nome','Tipo','Cor','Icone'],
   USUARIOS:      ['ID','Nome','Login','Senha','Cargo']
 };
@@ -147,6 +148,52 @@ function listarContas() {
   return abaParaJSON('CONTAS').filter(c => String(c.Ativo) !== 'false');
 }
 
+function listarInvestimentos() {
+  return abaParaJSON('INVESTIMENTOS').filter(i => String(i.Status).toUpperCase() !== 'false');
+}
+
+function criarInvestimento(d) {
+  const aba = getAba('INVESTIMENTOS');
+  const id = gerarId('INV');
+  const valorAtual = parseNum(d.Valor_Atual);
+  const metaValor = parseNum(d.Meta_Valor);
+  aba.appendRow([id, d.Nome || 'Novo Investimento', metaValor, valorAtual, d.Cor || '#0284c7', d.Icone || 'trending-up', d.Status || 'ATIVO']);
+  return { sucesso: true, id, mensagem: 'Investimento cadastrado com sucesso!' };
+}
+
+function atualizarInvestimento(id, d) {
+  const aba = getAba('INVESTIMENTOS');
+  const rows = aba.getDataRange().getValues();
+  const h = rows[0];
+  const idxId = h.indexOf('ID');
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idxId]) === String(id)) {
+      ['Nome', 'Meta_Valor', 'Valor_Atual', 'Cor', 'Icone', 'Status'].forEach(field => {
+        if (d[field] !== undefined) {
+          const col = h.indexOf(field) + 1;
+          aba.getRange(i + 1, col).setValue(field.includes('Valor') ? parseNum(d[field]) : d[field]);
+        }
+      });
+      return { sucesso: true, mensagem: 'Investimento atualizado com sucesso!' };
+    }
+  }
+  return { sucesso: false, mensagem: 'Investimento não encontrado.' };
+}
+
+function excluirInvestimento(id) {
+  const aba = getAba('INVESTIMENTOS');
+  const rows = aba.getDataRange().getValues();
+  const h = rows[0];
+  const idxId = h.indexOf('ID');
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idxId]) === String(id)) {
+      aba.deleteRow(i + 1);
+      return { sucesso: true, mensagem: 'Investimento excluído com sucesso!' };
+    }
+  }
+  return { sucesso: false, mensagem: 'Investimento não encontrado.' };
+}
+
 function criarConta(d) {
   const aba = getAba('CONTAS');
   const id = gerarId('CTA');
@@ -252,7 +299,7 @@ function registrarMovimentacao(d) {
       ]);
       
       if (d.ID_Reserva) {
-        atualizarSaldoReservaPorMovimentacao(d.ID_Reserva, d.Tipo, valorParcela);
+        atualizarSaldoDestinoPorMovimentacao(d.ID_Reserva, d.Tipo, valorParcela);
       }
     }
     recalcularSaldosContas();
@@ -275,11 +322,42 @@ function registrarMovimentacao(d) {
   ]);
 
   if (d.ID_Reserva) {
-    atualizarSaldoReservaPorMovimentacao(d.ID_Reserva, d.Tipo, valor);
+    atualizarSaldoDestinoPorMovimentacao(d.ID_Reserva, d.Tipo, valor);
   }
 
   recalcularSaldosContas();
   return { sucesso: true, id, mensagem: 'Lançamento registrado com sucesso!' };
+}
+
+function atualizarSaldoDestinoPorMovimentacao(destinoId, tipoMov, valor) {
+  if (!destinoId) return;
+  const destinoStr = String(destinoId);
+  if (destinoStr.startsWith('RSV_') || destinoStr.startsWith('RSV')) {
+    atualizarSaldoReservaPorMovimentacao(destinoId, tipoMov, valor);
+  } else if (destinoStr.startsWith('INV_') || destinoStr.startsWith('INV')) {
+    atualizarSaldoInvestimentoPorMovimentacao(destinoId, tipoMov, valor);
+  }
+}
+
+function atualizarSaldoInvestimentoPorMovimentacao(investimentoId, tipoMov, valor) {
+  const aba = getAba('INVESTIMENTOS');
+  const rows = aba.getDataRange().getValues();
+  const h = rows[0];
+  const idxId = h.indexOf('ID');
+  const idxAtual = h.indexOf('Valor_Atual');
+
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][idxId]) === String(investimentoId)) {
+      let vAtual = parseNum(rows[i][idxAtual]);
+      if (tipoMov === 'SAIDA') {
+        vAtual += valor;
+      } else if (tipoMov === 'ENTRADA') {
+        vAtual -= valor;
+      }
+      aba.getRange(i + 1, idxAtual + 1).setValue(vAtual);
+      break;
+    }
+  }
 }
 
 function atualizarMovimentacao(id, d) {
@@ -639,8 +717,11 @@ function rotearEscrita(b) {
     case 'criar_categoria':          return criarCategoria(b.dados);
     case 'atualizar_categoria':      return atualizarCategoria(b.id, b.dados);
     case 'excluir_categoria':        return excluirCategoria(b.id);
+    case 'criar_investimento':       return criarInvestimento(b.dados);
+    case 'atualizar_investimento':   return atualizarInvestimento(b.id, b.dados);
     case 'criar_usuario':            return criarUsuario(b.dados);
     case 'configurar_alerta_email':  return criarGatilhoEmail(b.email);
+    case 'testar_alerta_email':      return testarGatilhoEmail(b.email);
     case 'remover_alerta_email':     return removerGatilhoEmail();
     default: return { sucesso: false, mensagem: 'Ação de escrita não reconhecida: ' + b.acao };
   }
@@ -665,13 +746,14 @@ function doGet(e) {
       case 'listar_movimentacoes': r = { sucesso: true, dados: listarMovimentacoes(p) }; break;
       case 'listar_cartoes':       r = { sucesso: true, dados: listarCartoes() }; break;
       case 'listar_reservas':      r = { sucesso: true, dados: listarReservas() }; break;
+      case 'listar_investimentos': r = { sucesso: true, dados: listarInvestimentos() }; break;
       case 'listar_categorias':    r = { sucesso: true, dados: listarCategorias() }; break;
       case 'listar_usuarios':      r = { sucesso: true, dados: listarUsuarios() }; break;
       case 'inicializar':
-        ['CONTAS','MOVIMENTACOES','CARTOES','FATURAS','RESERVAS','CATEGORIAS','USUARIOS'].forEach(n => getAba(n));
+        ['CONTAS','MOVIMENTACOES','CARTOES','FATURAS','RESERVAS','INVESTIMENTOS','CATEGORIAS','USUARIOS'].forEach(n => getAba(n));
         listarCategorias(); // gera categorias padrão se vazias
         listarUsuarios();   // gera usuário admin padrão se vazio
-        r = { sucesso: true, mensagem: 'Todas as 7 abas foram inicializadas com sucesso na planilha!' };
+        r = { sucesso: true, mensagem: 'Todas as 8 abas foram inicializadas com sucesso na planilha!' };
         break;
       default: r = { sucesso: false, mensagem: 'Ação não reconhecida: ' + p.acao };
     }
@@ -756,6 +838,155 @@ function removerGatilhoEmail() {
   });
   PropertiesService.getScriptProperties().deleteProperty('ALERTA_EMAIL');
   return { sucesso: true, mensagem: 'Alerta de e-mail desativado com sucesso.' };
+}
+
+function gerarCorpoAlertaVencimentos(vencidas, aVencer, dataHojeFormatada, isTeste) {
+  const formatarBRL = v => {
+    return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const formatarDtBR = iso => {
+    if (!iso) return '';
+    const p = iso.split('-');
+    return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0] : iso;
+  };
+
+  let tabelaVencidas = '';
+  if (vencidas.length > 0) {
+    tabelaVencidas = `
+      <h2 style="color:#ef4444;margin-top:30px;">🔴 Transações Vencidas (${vencidas.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#fee2e2;">
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:left;">Descrição</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:left;">Vencimento</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:right;">Valor</th>
+            <th style="padding:10px;border:1px solid #fca5a5;text-align:center;">Dias Vencidos</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${vencidas.map(m => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${m.Descricao || '-'}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${formatarDtBR(m.dataFormatada)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:#ef4444;font-weight:bold;">${formatarBRL(m.Valor)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;color:#ef4444;font-weight:bold;">⚠️ ${m.diasVencidos} dia(s)</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  let tabelaAVencer = '';
+  if (aVencer.length > 0) {
+    tabelaAVencer = `
+      <h2 style="color:#f59e0b;margin-top:30px;">🟡 Vencendo em Breve (${aVencer.length})</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="background:#fef3c7;">
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:left;">Descrição</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:left;">Vencimento</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:right;">Valor</th>
+            <th style="padding:10px;border:1px solid #fcd34d;text-align:center;">Dias Restantes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${aVencer.map(m => `
+            <tr>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${m.Descricao || '-'}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;">${formatarDtBR(m.dataFormatada)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:right;color:#f59e0b;font-weight:bold;">${formatarBRL(m.Valor)}</td>
+              <td style="padding:8px;border:1px solid #e5e7eb;text-align:center;">${m.diasRestantes === 0 ? '🔥 Vence <strong>HOJE</strong>' : '⏳ ' + m.diasRestantes + ' dia(s)'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#1e293b;">
+      <div style="background:linear-gradient(135deg,#1e293b,#0f172a);padding:25px 30px;border-radius:12px;margin-bottom:25px;">
+        <h1 style="color:#f8fafc;margin:0;font-size:22px;">💰 FIN — ${isTeste ? 'Teste de Alerta de Vencimentos' : 'Alerta de Vencimentos'}</h1>
+        <p style="color:#94a3b8;margin:8px 0 0;">Relatório gerado automaticamente em ${dataHojeFormatada}</p>
+      </div>
+
+      ${vencidas.length === 0 && aVencer.length === 0 ?
+        '<p style="font-size:15px;color:#111827;">No momento não há transações pendentes vencidas nem prestes a vencer dentro da regra.</p>' :
+        `<div style="background:#f1f5f9;border-radius:8px;padding:15px 20px;margin-bottom:20px;">
+          <strong>Resumo do dia:</strong>
+          ${vencidas.length > 0 ? `<span style="color:#ef4444;margin-left:15px;">🔴 ${vencidas.length} vencida(s)</span>` : ''}
+          ${aVencer.length > 0 ? `<span style="color:#f59e0b;margin-left:15px;">🟡 ${aVencer.length} a vencer em até 3 dias</span>` : ''}
+        </div>`}
+
+      ${tabelaVencidas}
+      ${tabelaAVencer}
+
+      <p style="margin-top:30px;font-size:12px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:15px;">
+        Este e-mail é enviado automaticamente pelo sistema FIN às 08:00 todos os dias.
+        ${isTeste ? 'Este é um e-mail de teste e pode conter transações reais conforme a regra de vencimento.' : 'Para desativar, acesse Configurações > Alerta de Vencimentos por E-mail.'}
+      </p>
+    </body>
+    </html>
+  `;
+}
+
+function testarGatilhoEmail(email) {
+  if (!email || email.indexOf('@') < 0) {
+    return { sucesso: false, mensagem: 'E-mail inválido.' };
+  }
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const movs = abaParaJSON('MOVIMENTACOES');
+  const pendentes = movs.filter(m => String(m.Status || '').trim().toUpperCase() === 'PENDENTE');
+
+  const vencidas = [];
+  const aVencer = [];
+
+  pendentes.forEach(m => {
+    if (!m.Data) return;
+    const dtStr = formatarDataVal(m.Data);
+    if (!dtStr) {
+      const dtFallback = formatarDataVal(String(m.Data || '').trim());
+      if (!dtFallback) return;
+      dtStr = dtFallback;
+    }
+
+    const partes = dtStr.split('-');
+    if (partes.length !== 3) return;
+    const dtMov = new Date(partes[0], partes[1] - 1, partes[2]);
+    dtMov.setHours(0, 0, 0, 0);
+
+    const diffMs = dtMov.getTime() - hoje.getTime();
+    const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDias < 0) {
+      vencidas.push({ ...m, diasVencidos: Math.abs(diffDias), dataFormatada: dtStr });
+    } else if (diffDias >= 0 && diffDias <= 3) {
+      aVencer.push({ ...m, diasRestantes: diffDias, dataFormatada: dtStr });
+    }
+  });
+
+  const dataHojeFormatada = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy');
+  const corpoHtml = gerarCorpoAlertaVencimentos(vencidas, aVencer, dataHojeFormatada, true);
+  const assunto = `[FIN TESTE] Alerta de Vencimentos — ${vencidas.length} vencida(s), ${aVencer.length} a vencer — ${dataHojeFormatada}`;
+
+  try {
+    MailApp.sendEmail({
+      to: email,
+      subject: assunto,
+      htmlBody: corpoHtml
+    });
+    return { sucesso: true, mensagem: 'E-mail de teste enviado com sucesso para ' + email };
+  } catch (e) {
+    return { sucesso: false, mensagem: 'Erro ao enviar e-mail de teste: ' + e.message };
+  }
 }
 
 /**
