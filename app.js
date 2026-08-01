@@ -316,7 +316,18 @@ const app = {
     const syncStatus = document.getElementById('sync-status');
     if (syncStatus) syncStatus.style.display = 'flex';
 
-    Promise.all([
+    const carregarAgrupado = () => this.request('sincronizar_tudo').then(res => {
+      const dados = res.dados || {};
+      this.data.dashboard = dados.dashboard || null;
+      this.data.contas = dados.contas || [];
+      this.data.movimentacoes = dados.movimentacoes || [];
+      this.data.categorias = dados.categorias || [];
+      this.data.cartoes = dados.cartoes || [];
+      this.data.reservas = dados.reservas || [];
+      this.data.investimentos = dados.investimentos || [];
+    });
+
+    const carregarSeparado = () => Promise.all([
       this.request('dashboard'),
       this.request('listar_contas'),
       this.request('listar_movimentacoes'),
@@ -332,25 +343,30 @@ const app = {
       this.data.cartoes = resCar.dados;
       this.data.reservas = resRes.dados;
       this.data.investimentos = resInv.dados || [];
-      
-      this.preencherSelects();
-      this.renderDashboard();
-      this.renderContas();
-      this.renderFluxo();
-      this.renderCategorias();
-      this.renderReservas();
-      this.renderInvestimentos();
-      this.renderCartoes();
-      
-      this.esconderSplash();
-    }).catch(err => {
-      this.mostrarToast(err, 'error');
-    }).finally(() => {
-      if (syncStatus) syncStatus.style.display = 'none';
-      if (document.getElementById('app-layout').style.display === 'none') {
-        this.esconderSplash();
-      }
     });
+
+    carregarAgrupado()
+      .catch(() => carregarSeparado())
+      .then(() => {
+        this.preencherSelects();
+        this.renderDashboard();
+        this.renderContas();
+        this.renderFluxo();
+        this.renderCategorias();
+        this.renderReservas();
+        this.renderInvestimentos();
+        this.renderCartoes();
+        this.esconderSplash();
+      })
+      .catch(err => {
+        this.mostrarToast(err, 'error');
+      })
+      .finally(() => {
+        if (syncStatus) syncStatus.style.display = 'none';
+        if (document.getElementById('app-layout').style.display === 'none') {
+          this.esconderSplash();
+        }
+      });
   },
 
   // ── RENDERIZAÇÕES ──
@@ -656,7 +672,8 @@ const app = {
     if(fStatus !== 'todos') {
       movs = movs.filter(m => {
         const status = String(m.Status || '').toUpperCase();
-        const isVencido = status === 'VENCIDO' || (status === 'PENDENTE' && new Date(m.Data).getTime() < new Date().setHours(0,0,0,0));
+        const dataISO = this.formatarDataParaComparacao(m.Data);
+        const isVencido = status === 'VENCIDO' || (status === 'PENDENTE' && dataISO < new Date().toISOString().substring(0, 10));
         if (fStatus === 'VENCIDO') return isVencido;
         return status === fStatus;
       });
@@ -664,13 +681,13 @@ const app = {
     if(fCat !== 'todas') movs = movs.filter(m => m.Categoria === fCat);
     if(fCartao !== 'todos') movs = movs.filter(m => String(m.ID_Cartao) === fCartao);
     if(fDesc) movs = movs.filter(m => String(m.Descricao).toLowerCase().includes(fDesc));
-    if(fDataIni) movs = movs.filter(m => String(m.Data).substring(0, 10) >= fDataIni);
-    if(fDataFim) movs = movs.filter(m => String(m.Data).substring(0, 10) <= fDataFim);
+    if(fDataIni) movs = movs.filter(m => this.formatarDataParaComparacao(m.Data) >= fDataIni);
+    if(fDataFim) movs = movs.filter(m => this.formatarDataParaComparacao(m.Data) <= fDataFim);
 
     // Sort by Date
     movs.sort((a, b) => {
-      const da = new Date(a.Data).getTime();
-      const db = new Date(b.Data).getTime();
+      const da = new Date(this.formatarDataParaComparacao(a.Data)).getTime();
+      const db = new Date(this.formatarDataParaComparacao(b.Data)).getTime();
       return this.ordemDataAsc ? da - db : db - da;
     });
 
@@ -847,7 +864,7 @@ const app = {
       const isTransferencia = mov => {
         const categoria = String(mov.Categoria || '').trim().toLowerCase();
         const descricao = String(mov.Descricao || '').trim().toLowerCase();
-        return categoria.includes('transfer') || categoria === 'transfer�ncia' || categoria === 'transferencia' || descricao.includes('transfer') || descricao.includes('aporte') || descricao.includes('resgate') || (mov.ID_Conta_Origem && mov.ID_Conta_Destino);
+        return categoria.includes('transfer') || categoria === 'transfer�ncia' || categoria === 'transferencia' || descricao.includes('transfer') || descricao.includes('aporte') || descricao.includes('resgate') || (mov.ID_Conta_Origem && mov.ID_Conta_Destino);
       };
 
 
@@ -1088,18 +1105,73 @@ const app = {
     lucide.createIcons();
   },
 
+  obterMovsFaturaCartao(cartaoId, mes) {
+    return this.data.movimentacoes
+      .filter(m => String(m.ID_Cartao) === String(cartaoId))
+      .filter(m => String(m.Data).substring(0, 7) === String(mes))
+      .sort((a, b) => new Date(a.Data).getTime() - new Date(b.Data).getTime());
+  },
+
+  isMovimentacaoFaturaPagamento(mov) {
+    const desc = String(mov.Descricao || '').toLowerCase();
+    return desc.includes('pagamento de fatura') || 
+           desc.includes('pagamento da fatura') ||
+           desc.includes('antecipa') || 
+           desc.includes('antecipacao');
+  },
+
+  calcularTotalFaturaCartao(cartaoId, mes) {
+    const movs = this.obterMovsFaturaCartao(cartaoId, mes);
+    const compras = movs.filter(m => m.Tipo === 'SAIDA' && !this.isMovimentacaoFaturaPagamento(m) && String(m.Status).toUpperCase() !== 'PAGO');
+    const pagamentos = movs.filter(m => this.isMovimentacaoFaturaPagamento(m));
+    const totalCompras = compras.reduce((acc, m) => acc + Number(m.Valor || 0), 0);
+    const totalPagamentos = pagamentos.reduce((acc, m) => acc + Number(m.Valor || 0), 0);
+    return Math.max(0, totalCompras - totalPagamentos);
+  },
+
+  popularMesesFatura(selectEl, valorPadrao = '') {
+    if (!selectEl) return;
+
+    const now = new Date();
+    const options = [];
+    
+    // Começa 6 meses atrás e vai até 12 meses no futuro para cobrir faturas passadas e futuras
+    for (let i = -6; i <= 12; i++) {
+      const dt = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const val = `${y}-${m}`;
+      const label = `${m}/${y}`;
+      options.push(`<option value="${val}">${label}</option>`);
+    }
+
+    selectEl.innerHTML = options.join('');
+    
+    if (valorPadrao) {
+      selectEl.value = valorPadrao;
+    } else {
+      selectEl.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+  },
+
   renderCartoes() {
     const container = document.getElementById('lista-cartoes');
     if (!container) return;
     container.innerHTML = '';
-    const selectedMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0,7);
+    const selectedMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0, 7);
 
     this.data.cartoes.forEach(c => {
       container.innerHTML += `
         <div class="card" style="border-top: 4px solid ${c.Cor}">
           <div class="card-header">
             <span class="card-title">${c.Nome}</span>
-            <div style="display:flex; gap:8px; align-items:center;">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button class="btn btn-small" onclick="app.abrirModalPagamentoCartao('${c.ID}', 'pagar')" title="Pagar Fatura" style="padding:6px 10px; font-size:0.75rem;">
+                PAGAR
+              </button>
+              <button class="btn btn-small" onclick="app.abrirModalPagamentoCartao('${c.ID}', 'antecipar')" title="Antecipar Fatura" style="padding:6px 10px; font-size:0.75rem;">
+                Antecipar
+              </button>
               <button class="icon-btn" onclick="app.abrirAjusteLimite('${c.ID}')" title="Ajustar Limite do Cartão" style="color: var(--primary-color);">
                 <i data-lucide="sliders-horizontal"></i>
               </button>
@@ -1120,11 +1192,7 @@ const app = {
 
     // Preencher os valores de fatura por cartão (assíncrono mas rápido)
     this.data.cartoes.forEach(c => {
-      const total = this.data.movimentacoes
-        .filter(m => String(m.ID_Cartao) === String(c.ID))
-        .filter(m => m.Tipo === 'SAIDA')
-        .filter(m => String(m.Data).substring(0,7) === selectedMonth)
-        .reduce((acc, m) => acc + Number(m.Valor), 0);
+      const total = this.calcularTotalFaturaCartao(c.ID, selectedMonth);
       const el = document.getElementById(`cartao-fatura-${c.ID}`);
       if (el) el.innerText = this.formatarMoeda(total);
     });
@@ -1156,7 +1224,7 @@ const app = {
 
     // Novos selects para transferencia, edicao e aporte
     const arr = [
-      'transf-conta-origem', 'transf-conta-destino', 'edit-conta', 'aporte-conta', 'cartao-conta', 'edit-cartao-conta', 'limite-conta'
+      'transf-conta-origem', 'transf-conta-destino', 'edit-conta', 'aporte-conta', 'cartao-conta', 'edit-cartao-conta', 'limite-conta', 'pagamento-cartao-conta'
     ];
     arr.forEach(id => {
       const el = document.getElementById(id);
@@ -1186,19 +1254,12 @@ const app = {
     // Popula filtro de mês das faturas (próximos 12 meses)
     const selMes = document.getElementById('filtro-fatura-mes');
     if (selMes) {
-      const now = new Date();
-      const options = [];
-      for (let i = 0; i < 12; i++) {
-        const dt = new Date(now.getFullYear(), now.getMonth() + i, 1);
-        const y = dt.getFullYear();
-        const m = String(dt.getMonth() + 1).padStart(2, '0');
-        const val = `${y}-${m}`;
-        const label = `${m}/${y}`;
-        options.push(`<option value="${val}">${label}</option>`);
-      }
-      selMes.innerHTML = options.join('');
-      // Default para o mês atual
-      selMes.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      this.popularMesesFatura(selMes);
+    }
+
+    const selMesPagamento = document.getElementById('pagamento-cartao-data');
+    if (selMesPagamento) {
+      this.popularMesesFatura(selMesPagamento);
     }
 
     // Datas padrao do filtro (Primeiro e ultimo dia do mes)
@@ -1400,14 +1461,17 @@ const app = {
       payload.dados.ID_Reserva = '';
     }
 
+    // UX Otimizado: Fecha modal imediatamente e simula sucesso instantâneo
+    this.fecharModal('modal-lancamento-editar');
+    this.mostrarToast('Sincronizando edição com a nuvem...', 'info');
+    
+    btn.disabled = false; btn.innerText = 'Salvar Alterações';
+
     this.requestEscrita(payload).then(res => {
       this.mostrarToast(res.mensagem, 'success');
-      this.fecharModal('modal-lancamento-editar');
       this.carregarDadosIniciais();
     }).catch(err => {
-      this.mostrarToast(err, 'error');
-    }).finally(() => {
-      btn.disabled = false; btn.innerText = 'Salvar Alterações';
+      this.mostrarToast('Erro ao salvar: ' + err, 'error');
     });
   },
 
@@ -1750,14 +1814,146 @@ const app = {
     this.abrirModal('modal-limite-cartao');
   },
 
-  abrirFaturaCartao(cardId) {
-    const selMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0,7);
+  abrirModalPagamentoCartao(cardId, modo) {
     const cartao = this.data.cartoes.find(c => String(c.ID) === String(cardId));
     if (!cartao) return;
-    const movs = this.data.movimentacoes
-      .filter(m => String(m.ID_Cartao) === String(cardId))
-      .filter(m => String(m.Data).substring(0,7) === selMonth)
-      .sort((a,b) => new Date(a.Data).getTime() - new Date(b.Data).getTime());
+
+    const selMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0, 7);
+    const totalFatura = this.calcularTotalFaturaCartao(cardId, selMonth);
+
+    document.getElementById('pagamento-cartao-id').value = cardId;
+    document.getElementById('pagamento-cartao-modo').value = modo;
+    document.getElementById('pagamento-cartao-titulo').innerText = modo === 'pagar'
+      ? `Pagar fatura — ${cartao.Nome}`
+      : `Antecipar fatura — ${cartao.Nome}`;
+    document.getElementById('pagamento-cartao-valor').value = modo === 'pagar' ? totalFatura.toFixed(2) : '';
+    const selectMes = document.getElementById('pagamento-cartao-data');
+    if (selectMes) this.popularMesesFatura(selectMes, selMonth);
+    document.getElementById('pagamento-cartao-total').value = this.formatarMoeda(totalFatura);
+    this.abrirModal('modal-pagamento-cartao');
+  },
+
+  formatarDataParaComparacao(dataVal) {
+    if (!dataVal) return '';
+    let d = String(dataVal).trim();
+    // Se for formato ISO completo (YYYY-MM-DDTHH:mm:ss...)
+    if (d.includes('T')) d = d.split('T')[0];
+    // Se for YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
+      return d.substring(0, 10);
+    }
+    // Se for DD/MM/YYYY
+    if (/^\d{2}\/\d{2}\/\d{4}/.test(d)) {
+      const p = d.split('/');
+      return `${p[2]}-${p[1]}-${p[0]}`;
+    }
+    return d;
+  },
+
+
+  async salvarPagamentoCartao() {
+    const btn = document.querySelector('#form-pagamento-cartao button[type="submit"]');
+    if (!btn) return;
+    btn.disabled = true; btn.innerText = 'Processando...';
+
+    const cartaoId = document.getElementById('pagamento-cartao-id').value;
+    const modo = document.getElementById('pagamento-cartao-modo').value;
+    const valor = parseFloat(document.getElementById('pagamento-cartao-valor').value);
+    const mesFatura = document.getElementById('pagamento-cartao-data').value; // Formato YYYY-MM
+    const contaSelecionada = document.getElementById('pagamento-cartao-conta').value;
+    const cartao = this.data.cartoes.find(c => String(c.ID) === String(cartaoId));
+
+    if (!cartao) {
+      this.mostrarToast('Cartão não encontrado.', 'error');
+      btn.disabled = false; btn.innerText = 'Confirmar';
+      return;
+    }
+
+    // Validação obrigatória do mês
+    if (!mesFatura || !/^\d{4}-\d{2}$/.test(mesFatura)) {
+      this.mostrarToast('Selecione o mês da fatura antes de pagar.', 'warning');
+      btn.disabled = false; btn.innerText = 'Confirmar';
+      return;
+    }
+
+    try {
+      if (modo === 'pagar') {
+        const movsDoMes = this.data.movimentacoes.filter(m => {
+          const idCartaoMatch = String(m.ID_Cartao) === String(cartaoId);
+          const dataISO = this.formatarDataParaComparacao(m.Data);
+          const mesMov = dataISO.substring(0, 7); // Pega YYYY-MM
+          const mesMatch = mesMov === mesFatura;
+          const naoEhPagamento = !this.isMovimentacaoFaturaPagamento(m);
+          const pendente = String(m.Status).toUpperCase() !== 'PAGO';
+          return idCartaoMatch && mesMatch && naoEhPagamento && pendente;
+        });
+
+        if (movsDoMes.length === 0) {
+          this.mostrarToast('Nenhum item pendente encontrado para o mês selecionado.', 'warning');
+          btn.disabled = false; btn.innerText = 'Confirmar';
+          return;
+        }
+
+        const dadosUpdate = { Status: 'PAGO' };
+        if (String(contaSelecionada).startsWith('RSV_') || String(contaSelecionada).startsWith('RSV')) {
+          dadosUpdate.ID_Reserva = contaSelecionada;
+          dadosUpdate.ID_Conta_Origem = '';
+        } else {
+          dadosUpdate.ID_Conta_Origem = contaSelecionada;
+          dadosUpdate.ID_Reserva = '';
+        }
+
+        await this.requestEscrita({
+          acao: 'atualizar_movimentacao_lote',
+          ids: movsDoMes.map(m => m.ID),
+          mes: mesFatura,   // Filtro de mês: impede que parcelas futuras com mesmo ID base sejam afetadas
+          dados: dadosUpdate
+        });
+      } else {
+        // modo === 'antecipar'
+        const hoje = new Date().toISOString().substring(0, 10);
+        // Garante que o lançamento seja registrado no mês selecionado no modal (mesFatura é YYYY-MM)
+        const dataLancamento = (mesFatura === hoje.substring(0, 7)) ? hoje : `${mesFatura}-01`;
+
+        const descricao = `Antecipação de fatura — ${cartao.Nome}`;
+        const payload = {
+          acao: 'registrar_movimentacao',
+          dados: {
+            Tipo: 'SAIDA',
+            Data: dataLancamento,
+            Descricao: descricao,
+            Valor: valor,
+            Categoria: 'Cartão de Crédito',
+            Status: 'PAGO',
+            ID_Cartao: cartaoId
+          }
+        };
+
+        if (String(contaSelecionada).startsWith('RSV_') || String(contaSelecionada).startsWith('RSV')) {
+          payload.dados.ID_Reserva = contaSelecionada;
+        } else {
+          payload.dados.ID_Conta_Origem = contaSelecionada;
+        }
+
+        await this.requestEscrita(payload);
+      }
+
+      this.mostrarToast(modo === 'pagar' ? 'Fatura paga com sucesso!' : 'Antecipação registrada com sucesso!', 'success');
+      this.fecharModal('modal-pagamento-cartao');
+      document.getElementById('form-pagamento-cartao').reset();
+      this.carregarDadosIniciais();
+    } catch (err) {
+      this.mostrarToast(err, 'error');
+    } finally {
+      btn.disabled = false; btn.innerText = 'Confirmar';
+    }
+  },
+
+  abrirFaturaCartao(cardId) {
+    const selMonth = document.getElementById('filtro-fatura-mes')?.value || new Date().toISOString().substring(0, 7);
+    const cartao = this.data.cartoes.find(c => String(c.ID) === String(cardId));
+    if (!cartao) return;
+    const movs = this.obterMovsFaturaCartao(cardId, selMonth);
 
     const titulo = `${cartao.Nome} — Fatura ${selMonth.replace('-', '/')}`;
     document.getElementById('modal-fatura-titulo').innerText = titulo;
@@ -1767,14 +1963,19 @@ const app = {
     if (movs.length === 0) {
       conteudo.innerHTML = '<div style="padding:8px; color:var(--text-secondary)">Nenhuma transação encontrada para este mês.</div>';
     } else {
-      const rows = movs.map(m => `
-        <tr>
-          <td style="padding:8px 12px">${this.formatarData(m.Data)}</td>
-          <td style="padding:8px 12px">${m.Descricao}</td>
-          <td style="padding:8px 12px; text-align:right">${this.formatarMoeda(m.Valor)}</td>
-        </tr>
-      `).join('');
-      const total = movs.reduce((acc, m) => acc + Number(m.Valor), 0);
+      const rows = movs.map(m => {
+        const isPagamento = this.isMovimentacaoFaturaPagamento(m);
+        const valor = Number(m.Valor || 0);
+        const valorExibido = isPagamento ? -valor : valor;
+        return `
+          <tr>
+            <td style="padding:8px 12px">${this.formatarData(m.Data)}</td>
+            <td style="padding:8px 12px">${m.Descricao}</td>
+            <td style="padding:8px 12px; text-align:right; ${isPagamento ? 'color:var(--success); font-weight:600;' : ''}">${isPagamento ? '-' : ''}${this.formatarMoeda(Math.abs(valorExibido))}</td>
+          </tr>
+        `;
+      }).join('');
+      const total = this.calcularTotalFaturaCartao(cardId, selMonth);
       conteudo.innerHTML = `
         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
           <div style="font-weight:600">${cartao.Nome}</div>
@@ -1861,8 +2062,16 @@ const app = {
     const fCat     = document.getElementById('filtro-categoria')?.value || 'todas';
     const fCartao  = document.getElementById('filtro-cartao')?.value || 'todos';
     const fDesc    = document.getElementById('filtro-descricao')?.value.toLowerCase() || '';
-    const fDataIni = document.getElementById('filtro-data-inicio')?.value || '';
-    const fDataFim = document.getElementById('filtro-data-fim')?.value || '';
+    let fDataIni   = document.getElementById('filtro-data-inicio')?.value || '';
+    let fDataFim   = document.getElementById('filtro-data-fim')?.value || '';
+
+    // Segurança: se nenhum filtro de data estiver definido, limita ao mês corrente
+    // para evitar marcar TODOS os lançamentos históricos acidentalmente.
+    if (!fDataIni && !fDataFim) {
+      const hoje = new Date();
+      fDataIni = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().substring(0, 10);
+      fDataFim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().substring(0, 10);
+    }
 
     let movs = [...this.data.movimentacoes];
     if (fTipo !== 'todos') movs = movs.filter(m => m.Tipo === fTipo);
@@ -1871,8 +2080,8 @@ const app = {
     if (fCat !== 'todas') movs = movs.filter(m => m.Categoria === fCat);
     if (fCartao !== 'todos') movs = movs.filter(m => String(m.ID_Cartao) === fCartao);
     if (fDesc) movs = movs.filter(m => String(m.Descricao).toLowerCase().includes(fDesc));
-    if (fDataIni) movs = movs.filter(m => String(m.Data).substring(0, 10) >= fDataIni);
-    if (fDataFim) movs = movs.filter(m => String(m.Data).substring(0, 10) <= fDataFim);
+    if (fDataIni) movs = movs.filter(m => this.formatarDataParaComparacao(m.Data) >= fDataIni);
+    if (fDataFim) movs = movs.filter(m => this.formatarDataParaComparacao(m.Data) <= fDataFim);
     return movs;
   },
 
@@ -1886,9 +2095,11 @@ const app = {
 
     this.mostrarToast(`Atualizando ${movs.length} lançamentos...`, 'info');
     try {
-      for (const m of movs) {
-        await this.requestEscrita({ acao: 'atualizar_status_mov', id: m.ID, status: 'PAGO' });
-      }
+      await this.requestEscrita({ 
+        acao: 'atualizar_movimentacao_lote', 
+        ids: movs.map(m => m.ID), 
+        dados: { Status: 'PAGO' } 
+      });
       this.mostrarToast(`${movs.length} transação(ões) marcadas como PAGO!`, 'success');
       this.carregarDadosIniciais();
     } catch (err) {
@@ -1908,9 +2119,11 @@ const app = {
 
     this.mostrarToast(`Atualizando ${movs.length} lançamentos...`, 'info');
     try {
-      for (const m of movs) {
-        await this.requestEscrita({ acao: 'atualizar_status_mov', id: m.ID, status: 'PENDENTE' });
-      }
+      await this.requestEscrita({ 
+        acao: 'atualizar_movimentacao_lote', 
+        ids: movs.map(m => m.ID), 
+        dados: { Status: 'PENDENTE' } 
+      });
       this.mostrarToast(`${movs.length} transação(ões) marcadas como PENDENTE!`, 'success');
       this.carregarDadosIniciais();
     } catch (err) {

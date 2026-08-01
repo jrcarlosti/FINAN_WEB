@@ -914,6 +914,42 @@
     </div>
   </div>
 
+  <!-- Modal Pagamento / Antecipação de Fatura -->
+  <div id="modal-pagamento-cartao" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="pagamento-cartao-titulo">Pagar / Antecipar Fatura</h3>
+        <button class="close-btn" onclick="app.fecharModal('modal-pagamento-cartao')"><i data-lucide="x"></i></button>
+      </div>
+      <form id="form-pagamento-cartao" onsubmit="event.preventDefault(); app.salvarPagamentoCartao();">
+        <input type="hidden" id="pagamento-cartao-id">
+        <input type="hidden" id="pagamento-cartao-modo">
+        <div class="form-group">
+          <label>Valor</label>
+          <input type="number" step="0.01" id="pagamento-cartao-valor" class="form-control" required placeholder="0,00">
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Mês da Fatura</label>
+            <select id="pagamento-cartao-data" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Valor Atual da Fatura</label>
+            <input type="text" id="pagamento-cartao-total" class="form-control" disabled style="color: var(--text-secondary);">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Conta que será debitada</label>
+          <select id="pagamento-cartao-conta" class="form-control" required></select>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-pagamento-cartao')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal Editar Cartão -->
   <div id="modal-cartao-editar" class="modal-overlay">
     <div class="modal">
