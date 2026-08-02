@@ -131,6 +131,15 @@ const app = {
       if (this.chartContas) this.chartContas.update();
       if (this.chartFluxoResumo) this.chartFluxoResumo.update();
       if (this.chartCartoesCredito) this.chartCartoesCredito.update();
+      // Atualizar totais exibidos nos cards de gráfico
+      const totalContasEl = document.getElementById('fluxo-contas-total');
+      if (totalContasEl && totalContasEl.dataset.valor !== undefined) {
+        totalContasEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(Number(totalContasEl.dataset.valor));
+      }
+      const totalCartoesEl = document.getElementById('fluxo-cartoes-total');
+      if (totalCartoesEl && totalCartoesEl.dataset.valor !== undefined) {
+        totalCartoesEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(Number(totalCartoesEl.dataset.valor));
+      }
     });
 
     // Filtrar categorias quando o Tipo for alterado nos modais de lançamento/edição
@@ -538,9 +547,10 @@ const app = {
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          layout: { padding: { top: 30 } },
+          layout: { padding: { top: 60, bottom: 4 } },
           plugins: { 
             legend: {
+              position: 'bottom',
               labels: {
                 color: '#e2e8f0',
                 font: { size: 13, weight: '600' },
@@ -553,10 +563,12 @@ const app = {
             datalabels: {
               anchor: 'end',
               align: 'top',
+              offset: 2,
+              clip: false,
               formatter: function(value) { return app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(value); },
               color: '#e2e8f0',
-              font: { weight: 'bold', size: 11 },
-              textStrokeColor: 'rgba(0,0,0,0.7)',
+              font: { weight: 'bold', size: 10 },
+              textStrokeColor: 'rgba(0,0,0,0.8)',
               textStrokeWidth: 3
             }
           },
@@ -762,6 +774,7 @@ const app = {
 
     const totalCartoes = cartoesOrdenados.reduce((acc, c) => acc + c.total, 0);
     if (totalEl) {
+      totalEl.dataset.valor = totalCartoes;
       totalEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(totalCartoes);
     }
 
@@ -809,10 +822,18 @@ const app = {
 
     // 1. Gráfico Contas Bancárias (Saldo)
     const ctxContas = document.getElementById('chart-contas-saldo');
+    const totalContasEl = document.getElementById('fluxo-contas-total');
     if (ctxContas) {
       if (this.chartContas) this.chartContas.destroy();
       
       const contasSorted = [...this.data.contas].sort((a, b) => Number(b.Saldo_Atual) - Number(a.Saldo_Atual));
+      const totalContas = contasSorted.reduce((acc, c) => acc + Number(c.Saldo_Atual), 0);
+
+      if (totalContasEl) {
+        totalContasEl.dataset.valor = totalContas;
+        totalContasEl.innerText = this.ocultarValoresGraficos ? '••••' : this.formatarMoeda(totalContas);
+      }
+
       const labels = contasSorted.map(c => c.Nome);
       const data = contasSorted.map(c => Number(c.Saldo_Atual));
       const bgColors = contasSorted.map(c => c.Cor || (c.Saldo_Atual < 0 ? '#ef4444' : '#3b82f6'));

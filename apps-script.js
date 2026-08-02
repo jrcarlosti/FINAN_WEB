@@ -1059,8 +1059,10 @@ function testarGatilhoEmail(email) {
     return { sucesso: false, mensagem: 'E-mail inválido.' };
   }
 
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
+  // Usa o fuso de Brasília para determinar "hoje" corretamente
+  const hojeStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+  const hojePartes = hojeStr.split('-');
+  const hoje = new Date(Date.UTC(Number(hojePartes[0]), Number(hojePartes[1]) - 1, Number(hojePartes[2])));
 
   const movs = abaParaJSON('MOVIMENTACOES');
   const pendentes = movs.filter(m => String(m.Status || '').trim().toUpperCase() === 'PENDENTE');
@@ -1070,17 +1072,16 @@ function testarGatilhoEmail(email) {
 
   pendentes.forEach(m => {
     if (!m.Data) return;
-    const dtStr = formatarDataVal(m.Data);
+    let dtStr = formatarDataVal(m.Data);
     if (!dtStr) {
-      const dtFallback = formatarDataVal(String(m.Data || '').trim());
-      if (!dtFallback) return;
-      dtStr = dtFallback;
+      dtStr = formatarDataVal(String(m.Data || '').trim());
+      if (!dtStr) return;
     }
 
     const partes = dtStr.split('-');
     if (partes.length !== 3) return;
-    const dtMov = new Date(partes[0], partes[1] - 1, partes[2]);
-    dtMov.setHours(0, 0, 0, 0);
+    // Usa Date.UTC para evitar deslocamento de fuso no servidor do Google
+    const dtMov = new Date(Date.UTC(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2])));
 
     const diffMs = dtMov.getTime() - hoje.getTime();
     const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
@@ -1116,8 +1117,10 @@ function enviarAlertaVencimentos() {
   const email = PropertiesService.getScriptProperties().getProperty('ALERTA_EMAIL');
   if (!email) return; // Sem e-mail configurado, não faz nada
 
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
+  // Usa o fuso de Brasília para determinar "hoje" corretamente
+  const hojeStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+  const hojePartes = hojeStr.split('-');
+  const hoje = new Date(Date.UTC(Number(hojePartes[0]), Number(hojePartes[1]) - 1, Number(hojePartes[2])));
 
   const movs = abaParaJSON('MOVIMENTACOES');
   const pendentes = movs.filter(m => String(m.Status).toUpperCase() === 'PENDENTE');
@@ -1132,8 +1135,8 @@ function enviarAlertaVencimentos() {
 
     const partes = dtStr.split('-');
     if (partes.length !== 3) return;
-    const dtMov = new Date(partes[0], partes[1] - 1, partes[2]);
-    dtMov.setHours(0, 0, 0, 0);
+    // Usa Date.UTC para evitar deslocamento de fuso no servidor do Google
+    const dtMov = new Date(Date.UTC(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2])));
 
     const diffMs   = dtMov.getTime() - hoje.getTime();
     const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
