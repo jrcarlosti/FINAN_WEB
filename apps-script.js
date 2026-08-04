@@ -15,6 +15,12 @@
  * 6. Clique em "Implantar" e autorize o acesso
  * 7. Copie a URL gerada (começa com https://script.google.com/macros/s/...)
  * 8. Cole a URL nas Configurações do sistema FIN
+ *
+ * PARA ATIVAR O ALERTA DE E-MAIL:
+ * - No editor do Apps Script, selecione a função "autorizar" no menu
+ *   superior e clique em "Executar". Autorize TODOS os escopos solicitados.
+ *   Isso é necessário apenas UMA VEZ para liberar o envio de e-mails e
+ *   a criação de triggers automáticos.
  * ============================================================
  */
 
@@ -837,6 +843,7 @@ function rotearEscrita(b) {
     case 'configurar_alerta_email':  return criarGatilhoEmail(b.email);
     case 'testar_alerta_email':      return testarGatilhoEmail(b.email);
     case 'remover_alerta_email':     return removerGatilhoEmail();
+    case 'verificar_status_email':   return verificarStatusEmail();
     default: return { sucesso: false, mensagem: 'Ação de escrita não reconhecida: ' + b.acao };
   }
 }
@@ -903,16 +910,56 @@ function out(obj, callback) {
 
 /**
  * ============================================================
- * IMPORTANTE: Para o alerta de e-mail funcionar (Triggers),
+ * IMPORTANTE: Para o alerta de e-mail funcionar (Triggers e MailApp),
  * selecione a função "autorizar" no menu superior do Apps Script e clique em "Executar".
- * Isso solicitará as permissões necessárias (script.scriptapp).
+ * Isso solicitará as permissões necessárias (MailApp, ScriptApp).
+ * Só é necessário fazer isso UMA VEZ.
  * ============================================================
  */
 function autorizar() {
-  const email = Session.getActiveUser().getEmail();
-  Logger.log("Autorização concedida por " + email);
-  // Apenas chamando ScriptApp para forçar a permissão no manifesto
-  ScriptApp.getProjectTriggers();
+  try {
+    var email = Session.getActiveUser().getEmail();
+    // Força o escopo do ScriptApp (triggers)
+    ScriptApp.getProjectTriggers();
+    // Força o escopo do MailApp (envio de e-mail)
+    // Enviamos um e-mail de confirmação para o próprio usuário
+    MailApp.sendEmail({
+      to: email,
+      subject: '[FIN] Autorização concedida com sucesso!',
+      body: 'Olá! As permissões do sistema FIN foram autorizadas com sucesso. Agora você pode ativar o alerta de e-mail nas Configurações.'
+    });
+    Logger.log('Autorização e e-mail de confirmação enviados para: ' + email);
+    return { sucesso: true, mensagem: 'Autorização concedida! E-mail de confirmação enviado para ' + email };
+  } catch (e) {
+    Logger.log('Erro na autorização: ' + e.message);
+    return { sucesso: false, mensagem: 'Erro ao autorizar: ' + e.message };
+  }
+}
+
+/**
+ * Verifica o status atual do alerta de e-mail.
+ */
+function verificarStatusEmail() {
+  var emailSalvo = PropertiesService.getScriptProperties().getProperty('ALERTA_EMAIL') || '';
+  var triggers = [];
+  try {
+    var allTriggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < allTriggers.length; i++) {
+      if (allTriggers[i].getHandlerFunction() === 'enviarAlertaVencimentos') {
+        triggers.push('Trigger ativo');
+      }
+    }
+  } catch (e) {
+    return { sucesso: true, emailConfigurado: emailSalvo, triggerAtivo: false, triggerCount: 0, autorizado: false, mensagem: 'Autorização pendente. Execute a função "autorizar" no Apps Script.' };
+  }
+  return {
+    sucesso: true,
+    emailConfigurado: emailSalvo,
+    triggerAtivo: triggers.length > 0,
+    triggerCount: triggers.length,
+    autorizado: true,
+    mensagem: emailSalvo ? 'Alerta configurado para: ' + emailSalvo : 'Nenhum e-mail configurado.'
+  };
 }
 
 /**
@@ -927,32 +974,52 @@ function criarGatilhoEmail(email) {
   // Salva o e-mail nas propriedades do script (persistente)
   PropertiesService.getScriptProperties().setProperty('ALERTA_EMAIL', email);
 
-  // Remove triggers antigos com o mesmo nome para evitar duplicatas, sem apagar o e-mail configurado
-  removerGatilhoEmail(false);
+  // Tenta criar o trigger (requer autorização prévia da função "autorizar")
+  try {
+    // Remove triggers antigos para evitar duplicatas
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'enviarAlertaVencimentos') {
+        ScriptApp.deleteTrigger(triggers[i]);
+      }
+    }
 
-  // Cria novo trigger diário às 08:00 (horário de Brasília)
-  ScriptApp.newTrigger('enviarAlertaVencimentos')
-    .timeBased()
-    .atHour(8)
-    .everyDays(1)
-    .inTimezone('America/Sao_Paulo')
-    .create();
+    // Cria novo trigger diário às 08:00 (horário de Brasília)
+    ScriptApp.newTrigger('enviarAlertaVencimentos')
+      .timeBased()
+      .atHour(8)
+      .everyDays(1)
+      .inTimezone('America/Sao_Paulo')
+      .create();
 
-  return { sucesso: true, mensagem: 'Alerta de e-mail ativado! Será enviado diariamente às 08:00 para ' + email };
+    return { sucesso: true, mensagem: 'Alerta de e-mail ativado! Será enviado diariamente às 08:00 para ' + email };
+  } catch (e) {
+    // E-mail foi salvo, mas o trigger não pôde ser criado por falta de autorização
+    return {
+      sucesso: false,
+      mensagem: 'E-mail salvo, mas o trigger não pôde ser criado. Execute a função "autorizar" no editor do Apps Script e tente novamente. Erro: ' + e.message
+    };
+  }
 }
 
 /**
  * Remove todos os triggers de alerta de vencimento.
+ * Usa variável local em vez de parâmetro default para maior compatibilidade.
  */
-function removerGatilhoEmail(removerPropriedade = true) {
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(t => {
-    if (t.getHandlerFunction() === 'enviarAlertaVencimentos') {
-      ScriptApp.deleteTrigger(t);
+function removerGatilhoEmail(removerProp) {
+  var deveRemoverProp = (removerProp !== false); // false explícito = não remove; qualquer outra coisa = remove
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'enviarAlertaVencimentos') {
+        ScriptApp.deleteTrigger(triggers[i]);
+      }
     }
-  });
+  } catch (e) {
+    Logger.log('Aviso ao remover triggers: ' + e.message);
+  }
 
-  if (removerPropriedade) {
+  if (deveRemoverProp) {
     PropertiesService.getScriptProperties().deleteProperty('ALERTA_EMAIL');
   }
 
@@ -1059,43 +1126,56 @@ function testarGatilhoEmail(email) {
     return { sucesso: false, mensagem: 'E-mail inválido.' };
   }
 
+  // Verifica se o MailApp tem permissão antes de tentar enviar
+  try {
+    var quotaRestante = MailApp.getRemainingDailyQuota();
+    Logger.log('Quota de e-mail restante: ' + quotaRestante);
+    if (quotaRestante <= 0) {
+      return { sucesso: false, mensagem: 'Limite diário de e-mails do Google atingido. Tente novamente amanhã.' };
+    }
+  } catch (e) {
+    return {
+      sucesso: false,
+      mensagem: 'Permissão de e-mail não concedida. Execute a função "autorizar" no editor do Apps Script (Extensões > Apps Script > selecionar "autorizar" > Executar). Erro: ' + e.message
+    };
+  }
+
   // Usa o fuso de Brasília para determinar "hoje" corretamente
-  const hojeStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
-  const hojePartes = hojeStr.split('-');
-  const hoje = new Date(Date.UTC(Number(hojePartes[0]), Number(hojePartes[1]) - 1, Number(hojePartes[2])));
+  var hojeStr = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+  var hojePartes = hojeStr.split('-');
+  var hoje = new Date(Date.UTC(Number(hojePartes[0]), Number(hojePartes[1]) - 1, Number(hojePartes[2])));
 
-  const movs = abaParaJSON('MOVIMENTACOES');
-  const pendentes = movs.filter(m => String(m.Status || '').trim().toUpperCase() === 'PENDENTE');
+  var movs = abaParaJSON('MOVIMENTACOES');
+  var pendentes = movs.filter(function(m) { return String(m.Status || '').trim().toUpperCase() === 'PENDENTE'; });
 
-  const vencidas = [];
-  const aVencer = [];
+  var vencidas = [];
+  var aVencer = [];
 
-  pendentes.forEach(m => {
+  pendentes.forEach(function(m) {
     if (!m.Data) return;
-    let dtStr = formatarDataVal(m.Data);
+    var dtStr = formatarDataVal(m.Data);
     if (!dtStr) {
       dtStr = formatarDataVal(String(m.Data || '').trim());
       if (!dtStr) return;
     }
 
-    const partes = dtStr.split('-');
+    var partes = dtStr.split('-');
     if (partes.length !== 3) return;
-    // Usa Date.UTC para evitar deslocamento de fuso no servidor do Google
-    const dtMov = new Date(Date.UTC(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2])));
+    var dtMov = new Date(Date.UTC(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2])));
 
-    const diffMs = dtMov.getTime() - hoje.getTime();
-    const diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    var diffMs = dtMov.getTime() - hoje.getTime();
+    var diffDias = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffDias < 0) {
-      vencidas.push({ ...m, diasVencidos: Math.abs(diffDias), dataFormatada: dtStr });
+      vencidas.push(Object.assign({}, m, { diasVencidos: Math.abs(diffDias), dataFormatada: dtStr }));
     } else if (diffDias >= 0 && diffDias <= 3) {
-      aVencer.push({ ...m, diasRestantes: diffDias, dataFormatada: dtStr });
+      aVencer.push(Object.assign({}, m, { diasRestantes: diffDias, dataFormatada: dtStr }));
     }
   });
 
-  const dataHojeFormatada = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy');
-  const corpoHtml = gerarCorpoAlertaVencimentos(vencidas, aVencer, dataHojeFormatada, true);
-  const assunto = `[FIN TESTE] Alerta de Vencimentos — ${vencidas.length} vencida(s), ${aVencer.length} a vencer — ${dataHojeFormatada}`;
+  var dataHojeFormatada = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy');
+  var corpoHtml = gerarCorpoAlertaVencimentos(vencidas, aVencer, dataHojeFormatada, true);
+  var assunto = '[FIN TESTE] Alerta de Vencimentos — ' + vencidas.length + ' vencida(s), ' + aVencer.length + ' a vencer — ' + dataHojeFormatada;
 
   try {
     MailApp.sendEmail({
@@ -1103,9 +1183,9 @@ function testarGatilhoEmail(email) {
       subject: assunto,
       htmlBody: corpoHtml
     });
-    return { sucesso: true, mensagem: 'E-mail de teste enviado com sucesso para ' + email };
+    return { sucesso: true, mensagem: 'E-mail de teste enviado com sucesso para ' + email + '. Verifique sua caixa de entrada (e spam).' };
   } catch (e) {
-    return { sucesso: false, mensagem: 'Erro ao enviar e-mail de teste: ' + e.message };
+    return { sucesso: false, mensagem: 'Erro ao enviar e-mail: ' + e.message + '. Execute a função "autorizar" no Apps Script para conceder a permissão.' };
   }
 }
 

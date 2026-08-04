@@ -2213,6 +2213,20 @@ const app = {
       .catch(err => this.mostrarToast('Erro ao remover alerta: ' + err, 'error'));
   },
 
+  verificarStatusEmail() {
+    this.mostrarToast('Verificando status do alerta...', 'info');
+    this.requestEscrita({ acao: 'verificar_status_email' })
+      .then(res => {
+        const autorizado = res.autorizado ? '✅ Autorizado' : '⚠️ NÃO autorizado';
+        const trigger = res.triggerAtivo ? '✅ Trigger ativo' : '❌ Trigger inativo';
+        const email = res.emailConfigurado ? `📧 ${res.emailConfigurado}` : '❌ Nenhum e-mail configurado';
+        this.mostrarToast(`${email} | ${trigger} | ${autorizado}`, res.autorizado && res.triggerAtivo ? 'success' : 'warning');
+      })
+      .catch(err => {
+        this.mostrarToast('Erro ao verificar status: ' + err, 'error');
+      });
+  },
+
   applyChartCompactMode() {
     document.body.classList.toggle('chart-compact', this.compactCharts);
     const btn = document.getElementById('btn-toggle-chart-size');

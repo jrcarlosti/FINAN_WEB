@@ -309,7 +309,7 @@
           </div>
           <div class="form-actions" style="margin-top: 15px;">
             <button class="btn btn-primary" onclick="app.salvarConfig()">Salvar URL</button>
-            <button class="btn btn-secondary" onclick="app.inicializarPlanilha()">�a� Inicializar Abas na Planilha</button>
+            <button class="btn btn-secondary" onclick="app.inicializarPlanilha()">a Inicializar Abas na Planilha</button>
           </div>
         </div>
         <div class="settings-card" style="margin-top: 20px;">
@@ -328,12 +328,24 @@
               <li>O trigger é criado no Google Apps Script e roda automaticamente</li>
             </ul>
           </div>
+          <div style="background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 12px; margin-bottom: 15px; font-size: 0.85rem;">
+            <strong style="color: var(--danger);"><i data-lucide="shield-alert" style="width:14px;height:14px;vertical-align:bottom;margin-right:5px;"></i>Autorização obrigatória (passo único):</strong>
+            <ol style="margin: 8px 0 0 18px; line-height: 2;">
+              <li>Abra sua planilha → <strong>Extensões → Apps Script</strong></li>
+              <li>No menu de funções (topo), selecione <strong>"autorizar"</strong></li>
+              <li>Clique em <strong>"Executar"</strong> e autorize <strong>todos os escopos</strong></li>
+              <li>Você receberá um e-mail de confirmação → volte aqui e clique em <strong>"Ativar"</strong></li>
+            </ol>
+          </div>
           <div class="form-actions" style="gap: 10px; flex-wrap: wrap;">
             <button class="btn btn-primary" onclick="app.salvarEmailAlerta()">
               <i data-lucide="bell"></i> Ativar Alerta de E-mail
             </button>
             <button class="btn btn-secondary" onclick="app.testarEmailAlerta()">
               <i data-lucide="send"></i> Testar Envio de E-mail
+            </button>
+            <button class="btn btn-secondary" onclick="app.verificarStatusEmail()" style="background: var(--bg-card); border: 1px solid var(--border-color);">
+              <i data-lucide="activity"></i> Verificar Status
             </button>
             <button class="btn btn-outline" onclick="app.removerEmailAlerta()">
               <i data-lucide="bell-off"></i> Desativar Alerta
