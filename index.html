@@ -421,6 +421,18 @@
             <label>Saldo Inicial (R$)</label>
             <input type="number" step="0.01" id="edit-conta-saldo-inicial" class="form-control" required>
           </div>
+          <div class="form-group span-2">
+            <label>Cor da Conta</label>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <input type="color" id="edit-conta-cor" class="form-control" value="#3b82f6"
+                style="padding:0; height:42px; width:60px; cursor:pointer; border-radius:8px; flex-shrink:0;"
+                oninput="document.getElementById('edit-conta-cor-preview').style.background=this.value; document.getElementById('edit-conta-cor-hex').innerText=this.value;">
+              <div id="edit-conta-cor-preview"
+                style="flex:1; height:42px; border-radius:8px; background:#3b82f6; transition:background 0.2s; display:flex; align-items:center; justify-content:center;">
+                <span id="edit-conta-cor-hex" style="color:#fff; font-size:0.85rem; font-weight:600; letter-spacing:1px; text-shadow:0 1px 3px rgba(0,0,0,0.5);">#3b82f6</span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" onclick="app.fecharModal('modal-conta-editar')">Cancelar</button>
@@ -800,9 +812,10 @@
         <input type="hidden" id="aporte-alvo-id">
         <div class="form-group">
           <label>Operação</label>
-          <select id="aporte-tipo" class="form-control" required>
+          <select id="aporte-tipo" class="form-control" required onchange="app.onAporteTipoChange()">
             <option value="SAIDA">Fazer Aporte (+ no alvo, debitar da conta)</option>
             <option value="ENTRADA">Fazer Resgate (- no alvo, creditar na conta)</option>
+            <option value="RENDIMENTO">Rendimento (+ no alvo, sem movimentar conta)</option>
           </select>
         </div>
         <div class="form-grid">
@@ -815,9 +828,9 @@
             <input type="date" id="aporte-data" class="form-control" required>
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="aporte-conta-group">
           <label>Conta Movimentada</label>
-          <select id="aporte-conta" class="form-control" required></select>
+          <select id="aporte-conta" class="form-control"></select>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="app.fecharModal('modal-aporte')">Cancelar</button>

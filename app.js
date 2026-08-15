@@ -1345,6 +1345,14 @@ const app = {
     document.getElementById('edit-conta-id').value = conta.ID;
     document.getElementById('edit-conta-nome').value = conta.Nome;
     document.getElementById('edit-conta-saldo-inicial').value = conta.Saldo_Inicial || conta.Saldo_Atual || 0;
+    // Preencher cor
+    const cor = conta.Cor || '#3b82f6';
+    const corInput = document.getElementById('edit-conta-cor');
+    const corPreview = document.getElementById('edit-conta-cor-preview');
+    const corHex = document.getElementById('edit-conta-cor-hex');
+    if (corInput) corInput.value = cor;
+    if (corPreview) corPreview.style.background = cor;
+    if (corHex) corHex.innerText = cor;
     this.abrirModal('modal-conta-editar');
   },
 
@@ -1357,7 +1365,8 @@ const app = {
       id,
       dados: {
         Nome: document.getElementById('edit-conta-nome').value,
-        Saldo_Inicial: document.getElementById('edit-conta-saldo-inicial').value
+        Saldo_Inicial: document.getElementById('edit-conta-saldo-inicial').value,
+        Cor: document.getElementById('edit-conta-cor').value
       }
     };
 
@@ -1764,32 +1773,68 @@ const app = {
     document.getElementById('titulo-modal-aporte').innerText = titulo;
     document.getElementById('aporte-alvo-id').value = id;
     document.getElementById('aporte-data').value = new Date().toISOString().substring(0, 10);
+    // Resetar tipo para primeiro valor e garantir que campo conta esteja visível
+    const tipoEl = document.getElementById('aporte-tipo');
+    if (tipoEl) tipoEl.value = 'SAIDA';
+    this.onAporteTipoChange();
     this.abrirModal('modal-aporte');
   },
 
+  onAporteTipoChange() {
+    const tipo = document.getElementById('aporte-tipo')?.value;
+    const contaGroup = document.getElementById('aporte-conta-group');
+    const contaSelect = document.getElementById('aporte-conta');
+    if (!contaGroup || !contaSelect) return;
+    if (tipo === 'RENDIMENTO') {
+      contaGroup.style.display = 'none';
+      contaSelect.removeAttribute('required');
+    } else {
+      contaGroup.style.display = '';
+      contaSelect.setAttribute('required', 'required');
+    }
+  },
+
   salvarAporte() {
+    // Capturar todos os valores ANTES de fechar/resetar o modal
     const alvoId = document.getElementById('aporte-alvo-id').value;
     const tipo = document.getElementById('aporte-tipo').value;
+    const data = document.getElementById('aporte-data').value;
+    const valor = document.getElementById('aporte-valor').value;
+    const contaId = document.getElementById('aporte-conta').value;
+
     const alvoTipo = alvoId && (String(alvoId).startsWith('INV_') || String(alvoId).startsWith('INV')) ? 'Investimento' : 'Reserva';
-    const payload = {
-      acao: 'registrar_movimentacao',
-      dados: {
-        Tipo: tipo,
-        Data: document.getElementById('aporte-data').value,
-        Descricao: tipo === 'SAIDA'
-          ? `Aporte em ${alvoTipo}`
-          : `Resgate de ${alvoTipo}`,
-        Valor: document.getElementById('aporte-valor').value,
-        ID_Conta_Origem: document.getElementById('aporte-conta').value,
-        Categoria: 'Transferência',
-        Status: 'PAGO',
-        ID_Reserva: alvoId
-      }
+    const isRendimento = tipo === 'RENDIMENTO';
+
+    let descricao;
+    if (tipo === 'SAIDA') descricao = `Aporte em ${alvoTipo}`;
+    else if (tipo === 'ENTRADA') descricao = `Resgate de ${alvoTipo}`;
+    else descricao = `Rendimento em ${alvoTipo}`;
+
+    // Fechar modal e resetar formulário imediatamente para eliminar o delay visual
+    this.fecharModal('modal-aporte');
+    document.getElementById('form-aporte').reset();
+    this.onAporteTipoChange();
+
+    const dados = {
+      Tipo: isRendimento ? 'SAIDA' : tipo,
+      Data: data,
+      Descricao: descricao,
+      Valor: valor,
+      Categoria: isRendimento ? 'Rendimento' : 'Transferência',
+      Status: 'PAGO',
+      ID_Reserva: alvoId,
+      Apenas_Reserva: isRendimento ? 'SIM' : 'NAO'
     };
+
+    if (!isRendimento) {
+      dados.ID_Conta_Origem = contaId;
+    }
+
+    const payload = { acao: 'registrar_movimentacao', dados };
+
+    this.mostrarToast('Salvando...', 'info');
     this.requestEscrita(payload).then(res => {
       this.mostrarToast(res.mensagem, 'success');
-      this.fecharModal('modal-aporte');
-      document.getElementById('form-aporte').reset();
       this.carregarDadosIniciais();
     }).catch(err => this.mostrarToast(err, 'error'));
   },
