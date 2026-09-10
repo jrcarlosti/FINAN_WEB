@@ -116,6 +116,9 @@ const app = {
     document.getElementById('btn-toggle-theme').addEventListener('click', () => {
       document.body.classList.toggle('theme-light');
       document.body.classList.toggle('theme-dark');
+      // Gráficos (Chart.js) capturam as cores no momento em que são desenhados;
+      // sem re-render aqui, legendas/rótulos ficam com a cor do tema anterior.
+      this.renderDashboard();
     });
 
     // Ocultar valores toggle (CSS blur instantâneo)
@@ -396,12 +399,20 @@ const app = {
     const pendentes = [];
     const despesasPorCategoria = {};
 
+    const isTransferencia = mov => {
+      const categoria = String(mov.Categoria || '').trim().toLowerCase();
+      const descricao = String(mov.Descricao || '').trim().toLowerCase();
+      return categoria.includes('transfer') || categoria === 'transferência' || categoria === 'transferencia' || descricao.includes('transfer') || descricao.includes('aporte') || descricao.includes('resgate') || (mov.ID_Conta_Origem && mov.ID_Conta_Destino);
+    };
+
     movs.forEach(m => {
-      if(m.Tipo === 'ENTRADA') totalReceitasMes += Number(m.Valor);
-      else if(m.Tipo === 'SAIDA') {
-         totalDespesasMes += Number(m.Valor);
-         if (!despesasPorCategoria[m.Categoria]) despesasPorCategoria[m.Categoria] = 0;
-         despesasPorCategoria[m.Categoria] += Number(m.Valor);
+      if (!isTransferencia(m)) {
+        if(m.Tipo === 'ENTRADA') totalReceitasMes += Number(m.Valor);
+        else if(m.Tipo === 'SAIDA') {
+           totalDespesasMes += Number(m.Valor);
+           if (!despesasPorCategoria[m.Categoria]) despesasPorCategoria[m.Categoria] = 0;
+           despesasPorCategoria[m.Categoria] += Number(m.Valor);
+        }
       }
       if (String(m.Status).toUpperCase() === 'PENDENTE') {
         pendentesCount++;
@@ -439,16 +450,44 @@ const app = {
     const ctx = document.getElementById('chart-categorias');
     if(ctx) {
       if(this.chartCategorias) this.chartCategorias.destroy();
-      
-      const labels = Object.keys(despesasPorCategoria);
-      const values = Object.values(despesasPorCategoria);
-      
+
+      // Paleta categórica validada (ordem fixa, hues distintos para daltonismo),
+      // com um passo dedicado para cada tema — nunca a mesma cor "clara" sobre
+      // fundo claro nem "escura" sobre fundo escuro.
+      const isDark = document.body.classList.contains('theme-dark');
+      const CORES_CATEGORIA = isDark
+        ? ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9', '#e66767', '#94a3b8']
+        : ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7', '#e34948', '#64748b'];
+
+      // Mesmos valores de body.theme-light/body.theme-dark em style.css — lidos
+      // diretamente (em vez de getComputedStyle) para o gráfico nunca ficar
+      // dependente de timing de resolução de variável CSS.
+      const corSuperficie = isDark ? '#1e293b' : '#ffffff';
+      const corTextoPrimario = isDark ? '#f8fafc' : '#0f172a';
+      const corTextoSecundario = isDark ? '#94a3b8' : '#64748b';
+
+      // Categorias pequenas demais poluem a rosca e a legenda: mantemos as
+      // maiores e agrupamos o resto em "Outras", como uma pizza profissional.
+      const MAX_FATIAS = 7;
+      const entradas = Object.entries(despesasPorCategoria).sort((a, b) => b[1] - a[1]);
+      let labels, values;
+      if (entradas.length > MAX_FATIAS) {
+        const principais = entradas.slice(0, MAX_FATIAS);
+        const outrasSoma = entradas.slice(MAX_FATIAS).reduce((s, [, v]) => s + v, 0);
+        labels = [...principais.map(e => e[0]), 'Outras'];
+        values = [...principais.map(e => e[1]), outrasSoma];
+      } else {
+        labels = entradas.map(e => e[0]);
+        values = entradas.map(e => e[1]);
+      }
+
       if(labels.length === 0) {
         labels.push('Sem despesas');
         values.push(1);
       }
 
       const totalDespesas = values.reduce((a, b) => a + b, 0);
+      const cores = labels.map((_, i) => CORES_CATEGORIA[i % CORES_CATEGORIA.length]);
 
       this.chartCategorias = new Chart(ctx, {
         type: 'doughnut',
@@ -456,22 +495,26 @@ const app = {
           labels: labels,
           datasets: [{
             data: values,
-            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981', '#64748b', '#06b6d4', '#f97316'],
+            backgroundColor: cores,
             borderWidth: 2,
-            borderColor: '#1e293b'
+            borderColor: corSuperficie,
+            hoverOffset: 6
           }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { 
+          cutout: '68%',
+          plugins: {
             legend: {
               position: 'right',
               labels: {
-                color: '#e2e8f0',
+                color: corTextoPrimario,
                 font: { size: 13, weight: '600' },
                 padding: 18,
-                boxWidth: 14,
-                boxHeight: 14,
+                boxWidth: 12,
+                boxHeight: 12,
+                usePointStyle: true,
+                pointStyle: 'circle',
                 generateLabels: function(chart) {
                   const data = chart.data;
                   return data.labels.map((label, i) => {
@@ -481,6 +524,7 @@ const app = {
                       text: `${label}  ${pct}%`,
                       fillStyle: data.datasets[0].backgroundColor[i],
                       strokeStyle: data.datasets[0].backgroundColor[i],
+                      fontColor: corTextoPrimario,
                       hidden: false,
                       index: i
                     };
@@ -488,19 +532,52 @@ const app = {
                 }
               }
             },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const val = context.parsed;
+                  const pct = totalDespesas > 0 ? ((val / totalDespesas) * 100).toFixed(1) : 0;
+                  const valorFmt = app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(val);
+                  return ` ${valorFmt} (${pct}%)`;
+                }
+              }
+            },
             datalabels: {
               formatter: function(value, ctx) {
-                const pct = totalDespesas > 0 ? ((value / totalDespesas) * 100).toFixed(1) + '%' : '';
-                return app.ocultarValoresGraficos ? '••••' : pct;
+                const pct = totalDespesas > 0 ? (value / totalDespesas) * 100 : 0;
+                // Rótulo direto só nas fatias relevantes; fatias pequenas ficam
+                // só na legenda/tooltip para não poluir o gráfico.
+                if (pct < 5) return '';
+                return app.ocultarValoresGraficos ? '••••' : pct.toFixed(1) + '%';
               },
               color: '#ffffff',
               font: { weight: 'bold', size: 12 },
-              textStrokeColor: 'rgba(0,0,0,0.7)',
+              textStrokeColor: 'rgba(0,0,0,0.55)',
               textStrokeWidth: 3,
               display: function(context) { return context.dataset.data[context.dataIndex] > 0; }
             }
           }
-        }
+        },
+        plugins: [{
+          id: 'totalCentral',
+          afterDraw(chart) {
+            if (chart.config.type !== 'doughnut') return;
+            const { ctx, chartArea: { left, right, top, bottom } } = chart;
+            const cx = (left + right) / 2;
+            const cy = (top + bottom) / 2;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = corTextoSecundario;
+            ctx.font = '600 11px Inter, sans-serif';
+            ctx.fillText('TOTAL', cx, cy - 12);
+            ctx.fillStyle = corTextoPrimario;
+            ctx.font = '700 16px Inter, sans-serif';
+            const totalFmt = app.ocultarValoresGraficos ? '••••' : app.formatarMoeda(totalDespesas);
+            ctx.fillText(totalFmt, cx, cy + 10);
+            ctx.restore();
+          }
+        }]
       });
     }
 
@@ -511,10 +588,10 @@ const app = {
 
       const mesesMap = {};
       movs.forEach(m => {
-        if (!m.Data) return;
+        if (!m.Data || isTransferencia(m)) return;
         const mStr = String(m.Data).substring(0, 7);
         if (!mesesMap[mStr]) mesesMap[mStr] = { Receitas: 0, Despesas: 0 };
-        
+
         if (m.Tipo === 'ENTRADA') mesesMap[mStr].Receitas += Number(m.Valor);
         else if (m.Tipo === 'SAIDA') mesesMap[mStr].Despesas += Number(m.Valor);
       });
@@ -1516,33 +1593,48 @@ const app = {
 
     const origem = document.getElementById('transf-conta-origem').value;
     const destino = document.getElementById('transf-conta-destino').value;
-    const payloadSaida = {
-      acao: 'registrar_movimentacao',
-      dados: {
-        Tipo: 'SAIDA',
-        Data: document.getElementById('transf-data-origem').value,
-        Descricao: desc,
-        Valor: valor,
-        ID_Conta_Origem: origem,
-        ID_Conta_Destino: destino,
-        Categoria: 'Transferência',
-        Status: document.getElementById('transf-status-origem').value
-      }
+
+    // Reservas/Investimentos não são linhas da aba CONTAS: o saldo delas só é
+    // atualizado quando a movimentação traz ID_Reserva preenchido, usando o
+    // mesmo Tipo relativo à conta que o fluxo de Aporte usa (SAIDA = dinheiro
+    // saindo da conta para dentro da reserva/investimento = credita o alvo;
+    // ENTRADA = dinheiro voltando para a conta = debita o alvo).
+    const ehReservaOuInvestimento = (id) => {
+      const s = String(id || '');
+      return s.startsWith('RSV_') || s.startsWith('RSV') || s.startsWith('INV_') || s.startsWith('INV');
     };
 
-    const payloadEntrada = {
-      acao: 'registrar_movimentacao',
-      dados: {
-        Tipo: 'ENTRADA',
-        Data: document.getElementById('transf-data-destino').value,
-        Descricao: desc,
-        Valor: valor,
-        ID_Conta_Origem: destino,
-        ID_Conta_Destino: origem,
-        Categoria: 'Transferência',
-        Status: document.getElementById('transf-status-destino').value
-      }
+    const dadosSaida = {
+      Tipo: 'SAIDA',
+      Data: document.getElementById('transf-data-origem').value,
+      Descricao: desc,
+      Valor: valor,
+      ID_Conta_Origem: origem,
+      ID_Conta_Destino: destino,
+      Categoria: 'Transferência',
+      Status: document.getElementById('transf-status-origem').value
     };
+    if (ehReservaOuInvestimento(origem)) {
+      dadosSaida.Tipo = 'ENTRADA';
+      dadosSaida.ID_Reserva = origem;
+    }
+    const payloadSaida = { acao: 'registrar_movimentacao', dados: dadosSaida };
+
+    const dadosEntrada = {
+      Tipo: 'ENTRADA',
+      Data: document.getElementById('transf-data-destino').value,
+      Descricao: desc,
+      Valor: valor,
+      ID_Conta_Origem: destino,
+      ID_Conta_Destino: origem,
+      Categoria: 'Transferência',
+      Status: document.getElementById('transf-status-destino').value
+    };
+    if (ehReservaOuInvestimento(destino)) {
+      dadosEntrada.Tipo = 'SAIDA';
+      dadosEntrada.ID_Reserva = destino;
+    }
+    const payloadEntrada = { acao: 'registrar_movimentacao', dados: dadosEntrada };
 
     // Primeiro salva a saída, depois a entrada
     this.requestEscrita(payloadSaida)

@@ -245,7 +245,7 @@ canvas {
 .table-container { background: var(--bg-card); border-radius: var(--radius-lg); border: 1px solid var(--border-color); overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; text-align: left; }
 .table th, .table td { padding: 15px 20px; border-bottom: 1px solid var(--border-color); }
-.table th { font-weight: 600; color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
+.table th { font-weight: 600; color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--bg-card); z-index: 5; box-shadow: 0 1px 0 var(--border-color); }
 .table tbody tr { transition: var(--transition); }
 .table tbody tr:hover { background: var(--bg-app); }
 .table tbody tr:last-child td { border-bottom: none; }
@@ -272,10 +272,10 @@ canvas {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
   background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
-  z-index: 1000; opacity: 0; pointer-events: none; transition: var(--transition);
+  z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
 }
 .modal-overlay.active { opacity: 1; pointer-events: auto; }
-.modal { background: var(--bg-card); width: 90%; max-width: 500px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); transform: translateY(-20px); transition: var(--transition); }
+.modal { background: var(--bg-card); width: 90%; max-width: 500px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); transform: translateY(-20px); transition: transform 0.2s ease; will-change: transform; }
 .modal-overlay.active .modal { transform: translateY(0); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border-color); }
 .modal-header h3 { font-size: 1.2rem; font-weight: 600; }
@@ -284,7 +284,7 @@ canvas {
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-group.span-2 { grid-column: span 2; }
 .form-group label { font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); }
-.form-control { padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-primary); outline: none; font-family: inherit; transition: var(--transition); }
+.form-control { padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color); background: var(--bg-app); color: var(--text-primary); outline: none; font-family: inherit; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
 .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
 .modal-footer { padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 10px; }
 .modal form > .form-group { padding: 0 20px; margin-bottom: 15px; }

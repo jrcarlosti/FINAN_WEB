@@ -24,6 +24,12 @@
  * ============================================================
  */
 
+// Evita recalcular saldos mais de uma vez dentro da mesma execução do
+// script (uma sincronização completa chama getDashboard()/listarContas()
+// várias vezes; sem esse guard, recalcularTodosSaldos() relia/reescrevia
+// a planilha inteira a cada chamada, triplicando o I/O por sincronização).
+let _saldosRecalculadosNestaExecucao = false;
+
 const HEADERS = {
   CONTAS:        ['ID','Nome','Tipo','Banco','Saldo_Inicial','Saldo_Atual','Cor','Ativo'],
   MOVIMENTACOES: ['ID','Data','Hora','Tipo','Descricao','Valor','ID_Conta_Origem','ID_Conta_Destino','Categoria','Forma_Pagamento','Status','ID_Cartao','Parcela_Info','ID_Reserva','Observacao','Operador','KM'],
@@ -112,6 +118,8 @@ function abaParaJSON(nomeAba) {
 
 /* ── RECALCULAR SALDOS ──────────────────────────────────── */
 function recalcularTodosSaldos() {
+  if (_saldosRecalculadosNestaExecucao) return;
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const movs = abaParaJSON('MOVIMENTACOES').filter(m => {
     const s = String(m.Status).toUpperCase();
@@ -119,8 +127,13 @@ function recalcularTodosSaldos() {
   });
 
   recalcularContas(ss, movs);
-  recalcularReservas(ss, movs);
-  recalcularInvestimentos(ss, movs);
+  // Reservas e Investimentos já têm o saldo atualizado de forma incremental
+  // em atualizarSaldoReservaPorMovimentacao/atualizarSaldoInvestimentoPorMovimentacao
+  // (chamadas em registrarMovimentacao). recalcularReservas() nunca gravou o
+  // resultado na planilha (função legada sem setValues) e recalcularInvestimentos()
+  // está vazia — chamá-las aqui só lia a planilha inteira à toa a cada sincronização.
+
+  _saldosRecalculadosNestaExecucao = true;
 }
 
 function recalcularContas(ss, movs) {
@@ -156,55 +169,6 @@ function recalcularContas(ss, movs) {
   range.setValues(data);
 }
 
-function recalcularReservas(ss, movs) {
-  const aba = getAba('RESERVAS');
-  const range = aba.getDataRange();
-  const data = range.getValues();
-  if (data.length <= 1) return;
-
-  const h = data[0];
-  const idxId = h.indexOf('ID');
-  const idxAtual = h.indexOf('Valor_Atual');
-
-  for (let i = 1; i < data.length; i++) {
-    const id = String(data[i][idxId]);
-    // Reservas não tem "Saldo Inicial" explícito na aba, assumimos que começa em 0
-    // mas na verdade o sistema permite saldo inicial na criação. 
-    // Porém a aba RESERVAS não tem essa coluna. Vamos usar o valor atual como base? 
-    // Não, melhor somar tudo. Se houver saldo inicial, ele deve ser uma movimentação.
-    // Observando criarReserva, ela injeta parseNum(d.Valor_Atual).
-    // Então vamos manter o Valor_Atual como base? Não, isso duplicaria.
-    // A melhor forma é considerar que o "Valor_Atual" na criação é o ponto de partida.
-    // Mas a aba não guarda o Saldo Inicial. Vou assumir que o primeiro Valor_Atual é o inicial.
-    // Ou melhor, as movimentações devem cobrir tudo.
-    
-    let saldo = 0; 
-    movs.forEach(m => {
-      if (String(m.ID_Reserva) === id) {
-        const v = parseNum(m.Valor);
-        const tp = String(m.Tipo).toUpperCase();
-        const cat = String(m.Categoria).toLowerCase();
-
-        if (cat.includes('transfer') || cat.includes('aporte') || cat.includes('resgate')) {
-          if (tp === 'SAIDA') saldo += v;   // Aporte
-          else if (tp === 'ENTRADA') saldo -= v; // Resgate
-        } else {
-          if (tp === 'SAIDA') saldo -= v;   // Gasto direto da reserva
-          else if (tp === 'ENTRADA') saldo += v; // Ganho direto na reserva
-        }
-      }
-    });
-    // Se não houver movimentações, mantém o valor que está lá? 
-    // O problema é que o sistema não tem coluna Saldo_Inicial em RESERVAS.
-    // Vou pular a recalculação de Reservas se não quiser arriscar zerar saldos legados.
-    // Por enquanto, as Reservas funcionam bem com o sistema incremental.
-  }
-}
-
-function recalcularInvestimentos(ss, movs) {
-  // Similar a reservas
-}
-
 /* ── CONTAS ──────────────────────────────────────────────── */
 function listarContas() {
   recalcularTodosSaldos();
@@ -212,14 +176,28 @@ function listarContas() {
 }
 
 function getDadosSincronizacaoCompleta() {
+  // Lê cada aba uma única vez e reaproveita os arrays (contas/movimentações/
+  // reservas/cartões) tanto para o payload quanto para montar o dashboard,
+  // em vez de getDashboard() ler tudo de novo do zero por baixo dos panos.
+  const contas = listarContas();
+  const movimentacoes = listarMovimentacoes();
+  const reservas = listarReservas();
+  const cartoes = listarCartoes();
+  const categorias = listarCategorias();
+  const investimentos = listarInvestimentos();
+
+  // listarMovimentacoes() devolve mais recentes primeiro; montarDashboard()
+  // espera a ordem cronológica original (mesma ordem que abaParaJSON lia antes).
+  const movsCronologico = [...movimentacoes].reverse();
+
   return {
-    dashboard: getDashboard(),
-    contas: listarContas(),
-    movimentacoes: listarMovimentacoes(),
-    categorias: listarCategorias(),
-    cartoes: listarCartoes(),
-    reservas: listarReservas(),
-    investimentos: listarInvestimentos()
+    dashboard: montarDashboard(contas, movsCronologico, reservas, cartoes),
+    contas,
+    movimentacoes,
+    categorias,
+    cartoes,
+    reservas,
+    investimentos
   };
 }
 
@@ -774,12 +752,14 @@ function criarUsuario(d) {
 
 /* ── DASHBOARD ───────────────────────────────────────────── */
 function getDashboard() {
-  recalcularTodosSaldos();
   const contas = listarContas();
   const movs = abaParaJSON('MOVIMENTACOES');
   const reservas = listarReservas();
   const cartoes = listarCartoes();
+  return montarDashboard(contas, movs, reservas, cartoes);
+}
 
+function montarDashboard(contas, movs, reservas, cartoes) {
   const mesAtualStr = dataHoje().substring(0, 7); // yyyy-MM
 
   const movsMes = movs.filter(m => formatarDataVal(m.Data).startsWith(mesAtualStr) && String(m.Status).toUpperCase() === 'PAGO');
