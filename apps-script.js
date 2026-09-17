@@ -739,6 +739,22 @@ function listarUsuarios() {
   return abaParaJSON('USUARIOS');
 }
 
+function processarLogin(p) {
+  const login = String(p.user || '').trim();
+  const senha = String(p.pass || '').trim();
+  const usuarios = listarUsuarios();
+  const match = usuarios.find(u => u.Login === login && String(u.Senha) === senha);
+  if (!match) return { sucesso: false, mensagem: 'Usuário ou senha incorretos.' };
+
+  // Autentica e já devolve todos os dados iniciais na mesma execução do script,
+  // evitando uma segunda chamada (e um segundo cold start) só para carregar o app.
+  return {
+    sucesso: true,
+    usuario: { ID: match.ID, Nome: match.Nome, Login: match.Login, Cargo: match.Cargo },
+    dados: getDadosSincronizacaoCompleta()
+  };
+}
+
 function criarUsuario(d) {
   const aba = getAba('USUARIOS');
   const usrs = listarUsuarios();
@@ -851,6 +867,7 @@ function doGet(e) {
       case 'listar_investimentos': r = { sucesso: true, dados: listarInvestimentos() }; break;
       case 'listar_categorias':    r = { sucesso: true, dados: listarCategorias() }; break;
       case 'listar_usuarios':      r = { sucesso: true, dados: listarUsuarios() }; break;
+      case 'login':                r = processarLogin(p); break;
       case 'inicializar':
         ['CONTAS','MOVIMENTACOES','CARTOES','FATURAS','RESERVAS','INVESTIMENTOS','CATEGORIAS','USUARIOS'].forEach(n => getAba(n));
         listarCategorias(); // gera categorias padrão se vazias

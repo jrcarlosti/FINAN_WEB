@@ -75,22 +75,24 @@ const app = {
     const user = document.getElementById('login-user').value.trim();
     const pass = document.getElementById('login-pass').value.trim();
 
-    this.request('listar_usuarios').then(res => {
-      const usuarios = res.dados || [];
-      const match = usuarios.find(u => u.Login === user && String(u.Senha) === pass);
-      
-      if (match) {
-        sessionStorage.setItem('fin_logged_in', 'true');
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('splash-screen').style.display = 'flex';
-        document.getElementById('user-name-display').innerText = match.Nome || match.Login;
-        this.carregarDadosIniciais();
-      } else {
-        this.mostrarToast('Usuário ou senha incorretos.', 'error');
-        btn.disabled = false; btn.innerText = 'Entrar';
-      }
+    // Uma única chamada ao Apps Script: valida usuário/senha e já traz todos os
+    // dados iniciais na mesma execução (antes eram 2 chamadas sequenciais, cada
+    // uma pagando o cold start do Apps Script — login ficava bem mais lento).
+    this.request('login', { user, pass }).then(res => {
+      sessionStorage.setItem('fin_logged_in', 'true');
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('splash-screen').style.display = 'flex';
+      document.getElementById('user-name-display').innerText = (res.usuario && res.usuario.Nome) || user;
+
+      const syncStatus = document.getElementById('sync-status');
+      if (syncStatus) syncStatus.style.display = 'flex';
+
+      this.aplicarDadosSincronizados(res.dados || {});
+      this.finalizarRenderizacao();
+
+      if (syncStatus) syncStatus.style.display = 'none';
     }).catch(err => {
-      this.mostrarToast('Erro ao contatar API: ' + err, 'error');
+      this.mostrarToast(typeof err === 'string' ? err : 'Erro ao contatar API: ' + err, 'error');
       btn.disabled = false; btn.innerText = 'Entrar';
     });
   },
@@ -324,19 +326,34 @@ const app = {
     }).catch(err => this.mostrarToast(err, 'error'));
   },
 
+  aplicarDadosSincronizados(dados) {
+    this.data.dashboard = dados.dashboard || null;
+    this.data.contas = dados.contas || [];
+    this.data.movimentacoes = dados.movimentacoes || [];
+    this.data.categorias = dados.categorias || [];
+    this.data.cartoes = dados.cartoes || [];
+    this.data.reservas = dados.reservas || [];
+    this.data.investimentos = dados.investimentos || [];
+  },
+
+  finalizarRenderizacao() {
+    this.preencherSelects();
+    this.renderDashboard();
+    this.renderContas();
+    this.renderFluxo();
+    this.renderCategorias();
+    this.renderReservas();
+    this.renderInvestimentos();
+    this.renderCartoes();
+    this.esconderSplash();
+  },
+
   carregarDadosIniciais() {
     const syncStatus = document.getElementById('sync-status');
     if (syncStatus) syncStatus.style.display = 'flex';
 
     const carregarAgrupado = () => this.request('sincronizar_tudo').then(res => {
-      const dados = res.dados || {};
-      this.data.dashboard = dados.dashboard || null;
-      this.data.contas = dados.contas || [];
-      this.data.movimentacoes = dados.movimentacoes || [];
-      this.data.categorias = dados.categorias || [];
-      this.data.cartoes = dados.cartoes || [];
-      this.data.reservas = dados.reservas || [];
-      this.data.investimentos = dados.investimentos || [];
+      this.aplicarDadosSincronizados(res.dados || {});
     });
 
     const carregarSeparado = () => Promise.all([
@@ -359,17 +376,7 @@ const app = {
 
     carregarAgrupado()
       .catch(() => carregarSeparado())
-      .then(() => {
-        this.preencherSelects();
-        this.renderDashboard();
-        this.renderContas();
-        this.renderFluxo();
-        this.renderCategorias();
-        this.renderReservas();
-        this.renderInvestimentos();
-        this.renderCartoes();
-        this.esconderSplash();
-      })
+      .then(() => this.finalizarRenderizacao())
       .catch(err => {
         this.mostrarToast(err, 'error');
       })
@@ -1534,6 +1541,10 @@ const app = {
     // Repopula o select de categoria conforme o Tipo antes de selecionar o valor
     this.atualizarCategoriasParaSelect('edit-categoria', mov.Tipo);
     document.getElementById('edit-categoria').value = mov.Categoria;
+    // Exibe/oculta o campo KM conforme a categoria e já preenche o valor salvo
+    // (setar .value via JS não dispara o "onchange" do select, por isso a chamada manual).
+    this.verificarCategoriaCarro(document.getElementById('edit-categoria'), 'edit-grupo-km');
+    document.getElementById('edit-km').value = mov.KM || '';
     document.getElementById('edit-status').value = String(mov.Status).toUpperCase();
     document.getElementById('edit-cartao').value = mov.ID_Cartao || '';
     document.getElementById('edit-parcelas').value = mov.Parcela_Info || '1';
@@ -1545,6 +1556,12 @@ const app = {
     btn.disabled = true; btn.innerText = 'Salvando...';
 
     const id = document.getElementById('edit-id').value;
+    const catSelect = document.getElementById('edit-categoria');
+    const categoriaNome = catSelect.options[catSelect.selectedIndex]?.text || '';
+    const kmValor = (categoriaNome.toUpperCase() === 'CARRO')
+      ? (document.getElementById('edit-km')?.value.trim() || '')
+      : '';
+
     const payload = {
       acao: 'atualizar_movimentacao',
       id: id,
@@ -1556,7 +1573,8 @@ const app = {
         ID_Conta_Origem: document.getElementById('edit-conta').value,
         Categoria: document.getElementById('edit-categoria').value,
         Status: document.getElementById('edit-status').value,
-        ID_Cartao: document.getElementById('edit-cartao').value
+        ID_Cartao: document.getElementById('edit-cartao').value,
+        KM: kmValor
       }
     };
 
@@ -1636,22 +1654,24 @@ const app = {
     }
     const payloadEntrada = { acao: 'registrar_movimentacao', dados: dadosEntrada };
 
-    // Primeiro salva a saída, depois a entrada
+    // UX Otimizado: fecha modal imediatamente, reseta formulário e simula sucesso
+    // instantâneo (mesmo padrão do Novo Lançamento) em vez de deixar o usuário
+    // esperando parado com o botão "Processando..." até as 2 chamadas voltarem.
+    this.fecharModal('modal-transferencia');
+    document.getElementById('form-transferencia').reset();
+    this.mostrarToast('Sincronizando transferência com a nuvem...', 'info');
+    btn.disabled = false; btn.innerText = 'Realizar Transferência';
+
+    // Primeiro salva a saída, depois a entrada (sequencial de propósito: evita
+    // corrida entre as duas execuções do Apps Script ao recalcular saldos).
     this.requestEscrita(payloadSaida)
-      .then(() => {
-        return this.requestEscrita(payloadEntrada);
-      })
+      .then(() => this.requestEscrita(payloadEntrada))
       .then(() => {
         this.mostrarToast('Transferência realizada com sucesso!', 'success');
-        this.fecharModal('modal-transferencia');
-        document.getElementById('form-transferencia').reset();
-        this.carregarDadosIniciais();
+        this.carregarDadosIniciais(); // Recarrega silenciosamente em background
       })
       .catch(err => {
-        this.mostrarToast(err, 'error');
-      })
-      .finally(() => {
-        btn.disabled = false; btn.innerText = 'Realizar Transferência';
+        this.mostrarToast('Erro ao salvar: ' + err, 'error');
       });
   },
 
@@ -2403,7 +2423,7 @@ const app = {
         divKm.style.display = 'flex';
       } else {
         divKm.style.display = 'none';
-        const inputKm = document.getElementById('lanc-km');
+        const inputKm = divKm.querySelector('input');
         if (inputKm) inputKm.value = '';
       }
     }
